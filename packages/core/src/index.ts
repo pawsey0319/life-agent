@@ -20,7 +20,9 @@ export type Pending={id:string;content:string;reason:string;kind:'consent'|'conf
 export class MemoryBook {
  memories:Memory[]=[]; pending:Pending[]=[]; deleted=new Set<string>(); feedback:{id:string;memoryId:string;at:string;action:string}[]=[];
  constructor(readonly userId:string){}
+ prunePending(now=Date.now()){const before=this.pending.length;this.pending=this.pending.filter(p=>{const created=Date.parse(p.createdAt);return Number.isFinite(created)&&created<=now&&now-created<=120000;});return before-this.pending.length;}
  remember(input:Candidate, consent=false):{decision:string;memory?:Memory;pending?:Pending}{
+  this.prunePending();
   const c=candidateSchema.parse(input);
   if(c.user_signal==='forget'||c.user_signal==='dont_remember')return {decision:'DROP'};
   if(isSensitive(c.content,c.sensitive)&&!consent){const p:Pending={id:id(),content:c.content,reason:'敏感内容需要单独同意',kind:'consent',candidate:c,createdAt:iso()};this.pending.push(p);return {decision:'ASK_FIRST',pending:p};}
@@ -36,12 +38,12 @@ export class MemoryBook {
  decide(pendingId:string,allow:boolean){const p=this.pending.find(p=>p.id===pendingId);if(!p)throw new DomainError('NOT_FOUND','待确认项不存在',404);if(!Number.isFinite(Date.parse(p.createdAt))||Date.parse(p.createdAt)>Date.now()||Date.now()-Date.parse(p.createdAt)>120000){this.pending=this.pending.filter(x=>x.id!==p.id);throw new DomainError('EXPIRED','确认已过期',409);}this.pending=this.pending.filter(x=>x.id!==p.id);if(!allow)return {decision:'DROP'};if(p.oldId){const old=this.memories.find(m=>m.id===p.oldId);if(!old||this.deleted.has(p.oldId)||old.state!=='active'||this.memories.find(m=>m.subject===old.subject&&m.state==='active')?.id!==old.id)return {decision:'DROP'};old.state='historical';}return this.remember(p.candidate,true);}
  remove(memoryId:string){this.deleted.add(memoryId);this.memories=this.memories.filter(m=>m.id!==memoryId);this.pending=this.pending.filter(p=>p.oldId!==memoryId);this.feedback=this.feedback.filter(f=>f.memoryId!==memoryId);}
  retry(memoryId:string,c:Candidate){return this.deleted.has(memoryId)?{decision:'DROP'}:this.remember(c);}
- nightly(now=Date.now()){for(const m of this.memories){if(m.tier==='core'||m.state==='historical'||m.pinned)continue;if(m.tier==='normal'&&new Set(m.sessionIds).size>=3){m.tier='core';m.reason='three_distinct_sessions';m.state='active';continue;}const days=(now-Date.parse(m.lastUsedAt))/86400000;const fade=m.tier==='normal'?90:10;const archive=m.tier==='normal'?270:40;if(days>=archive)m.state='archived';else if(days>=fade)m.state='faded';}}
+ nightly(now=Date.now()){this.prunePending(now);for(const m of this.memories){if(m.tier==='core'||m.state==='historical'||m.pinned)continue;if(m.tier==='normal'&&new Set(m.sessionIds).size>=3){m.tier='core';m.reason='three_distinct_sessions';m.state='active';continue;}const days=(now-Date.parse(m.lastUsedAt))/86400000;const fade=m.tier==='normal'?90:10;const archive=m.tier==='normal'?270:40;if(days>=archive)m.state='archived';else if(days>=fade)m.state='faded';}}
  retrieve(query:string,options:RetrievalOptions={}){
   const now=options.now??Date.now();
   const eligible=this.memories.filter(m=>m.userId===this.userId&&!this.deleted.has(m.id)&&(m.state==='active'||m.state==='faded'));
   const rules=eligible.filter(m=>m.tier==='core'&&alwaysLoadCategories.has(m.category));
-  const topicCore=eligible.filter(m=>m.tier==='core'&&!alwaysLoadCategories.has(m.category)&&topicMatches(m,query,options.domain));
+  const topicCore=eligible.filter(m=>{if(m.tier!=='core'||alwaysLoadCategories.has(m.category))return false;if(topicMatches(m,query,options.domain))return true;const lexical=keywordScore(query,`${m.subject} ${m.content}`);const semantic=options.queryVector&&m.embedding&&m.embeddingContent===m.content?cosine(options.queryVector,m.embedding):0;return lexical>=0.2||semantic>=0.65;});
   const memories=eligible.filter(m=>m.tier!=='core').map(m=>{
    const lexical=keywordScore(query,`${m.subject} ${m.content}`);
    const semantic=options.queryVector&&m.embedding&&m.embeddingContent===m.content?Math.max(0,cosine(options.queryVector,m.embedding)):0;

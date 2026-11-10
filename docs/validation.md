@@ -8,7 +8,7 @@
 | 工作区依赖安装 | 完成 | Node 24.21.0 / pnpm 10.11.0，本机安装成功 |
 | 依赖安全审计 | 通过 | `pnpm audit --prod`，首次1 high+3 moderate已修复；本次0已知漏洞，不等于无漏洞保证 |
 | TypeScript | 通过 | `pnpm typecheck`，领域、Runtime、Expo 三包 |
-| 确定性规则测试 | 通过 | `pnpm test`，core26 + Runtime56 +独立加密1，共83项（含私有资产隔离、注销失败、任务完成响应丢失、PA风格隔离、关闭对话/组件能力执行及HTTP限流/体积边界回归）；包含30题规则调度种子，不等于真实模型评测 |
+| 确定性规则测试 | 通过 | `pnpm test`，core26 + Runtime63 +独立加密1，共90项（含私有资产隔离、注销失败、任务完成响应丢失、PA风格隔离、关闭对话/组件能力执行及HTTP限流/体积边界回归）；包含30题规则调度种子，不等于真实模型评测 |
 | HTTP 流程与攻击检查 | 通过 | fresh loopback demo真实进程；smoke/adversarial/grants三脚本，含孵化锁、SSE、敏感确认、删除、拆卸、身份伪造、原文单次读取与临时派生、普通字段排除敏感记录 |
 | Expo Web 导出 | 通过 | `EXPO_PUBLIC_MODE=demo EXPO_PUBLIC_API_URL=http://127.0.0.1:8787 pnpm build:web` |
 | 浏览器桌面/窄屏 | 通过 | Playwright + 本机Chrome，6项：启动无JS错误、孵化/敏感记忆/积木记录、清单缩权与扩权拒绝/同意及旧授权失效、通知IANA时区验证及刷新持久化、390px无横向溢出、关闭会话不加载聊天及组件能力/UI交集只读控制；另复查手机重复页脚修复 |
