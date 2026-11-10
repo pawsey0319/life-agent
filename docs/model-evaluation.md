@@ -23,5 +23,11 @@
 - 工具/模型输出、外部摘要、临时原文及派生回答不得进入提取候选或未来模型上下文。
 - 不向真实供应商发送私人数据做初次测试；先用虚构但人工标注样例。
 
+## 离线评分入口
+
+`pnpm evaluate:memory /absolute/labels.json /absolute/predictions.json /absolute/new-report.json` 对照人工标签和已收集模型预测，不调用供应商。labels为数组，每项包含id、annotator、reviewer、expected；预测数组每项为`{id,actual:{...}}`。expected/actual包含category、user_signal、is_trait、harm_if_forgotten、emotional_weight、constrains_future、sensitive。当前运行时类别为八个核心类+general，源方案其他细分类尚未全部展开，不以此工具证明完整13类覆盖。
+
+工具拒绝空标签、重复/未知ID、缺少人工归属及非法标签值；缺失预测按错误计入分母。报告仅含ID、字段指标/失败字段，不复制input或content；ID仍应使用无隐私编号。输出新报告用独占创建，不覆盖已有结果。退出码0仅表示至少300条、完整预测、每字段≥90%且无敏感漏报；1表示门槛未满足，2表示输入/文件错误。即使0，也不能证明标签真实人工生成或预测来自真实模型，来源须审查。event_date、confidence_band、核心保持与调度不在该工具评分范围，另验。
+
 ## 报告格式
 日期、git SHA、供应商/模型 ID（不含秘密）、配置模式、样本数、逐项指标、失败 ID、成本/延迟、未执行项。报告0/300或“待执行”比凭空写100%更准确。只有本地工程测试通过时，交付只能称“工程规则通过，模型待验收”。
