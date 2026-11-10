@@ -25,7 +25,7 @@ node --env-file=packages/runtime/.env.local --import tsx packages/runtime/src/wo
 不要将该文件source进未知shell，也不要输出完整环境做诊断。Android模拟器安装、端口连接与验收见 [Android验收](android-acceptance.md)。
 
 ## Supabase
-1. 新建独立项目；不要导入原型用户或复用其他项目密钥。
+1. 新建独立项目；不要导入原型用户或复用其他项目密钥。托管项目先在SQL Editor运行 `supabase/scripts/preflight_hosted.sql`（只读事务，不读取业务行/密钥），核对Postgres版本、扩展可用性、现有public表、部署角色与已有迁移历史。若已有业务表或受控角色先暂停迁移，不能把 `if not exists` 当升级安全保证；服务角色HTTP密钥也不能替代数据库管理员执行DDL。
 2. 应用 `supabase/migrations`，确认 pgvector/pgmq 扩展在目标托管版本可用。数据库管理员执行迁移，客户端永远不拿服务角色。
 3. 对允许直读的本人业务表启用 RLS；敏感受控表默认不开放写入。逐表验证 anon/本人/其他用户/Runtime 角色。
 4. 以两个真实用户、两个不同命名空间测试跨用户外键、直接表访问、核心夜间修改、审计删除与单次授权并发。
