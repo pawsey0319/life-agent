@@ -4,21 +4,21 @@
 
 ## 两种模式
 - **demo**：仅本地回环监听、模拟模型、独立可重置状态；不输入真实健康/金融等私人数据。客户端常驻演示标识。
-- **configured**：缺 Supabase、主密钥或所需模型配置即报错；不能悄悄退回 demo。鉴权必须验证 Supabase 用户，不能仅解析未验签 JWT。
+- **configured**：缺 Supabase、主密钥或核心模型配置即报错；不能悄悄退回 demo。鉴权必须验证 Supabase 用户，不能仅解析未验签 JWT。核心模型为 `TEXT_*` 与 `EXTRACT_*`，`EMBED_*`、`IMAGE_*` 可暂不配置，但只要开始配置某用途就必须提供该用途的地址、密钥和模型。
 
 具体环境变量及启动命令见[README](../README.md)、[服务端环境示例](../packages/runtime/.env.example)和[客户端环境示例](../apps/mobile/.env.example)。主密钥必须是32字节随机值的 base64 编码，例如在可信终端用 `openssl rand -base64 32` 生成，勿复制演示常量。示例文件不自动加载，显式导出环境变量。
 
 ## 本地配置预检与分用途供应商
 
-运行 `pnpm preflight:deployment`，默认只读取 Git 忽略的 `packages/runtime/.env.local`，输出键名与是否就绪，不打印值、不访问网络、不执行迁移。退出1表示配置尚缺，退出2表示文件不能读取；通过只代表格式检查，不代表密钥有效、模型支持或数据库已迁移。
+运行 `pnpm preflight:deployment`，默认只读取 Git 忽略的 `packages/runtime/.env.local`，输出键名与是否就绪，不打印值、不访问网络、不执行迁移。核心配置缺失或非法时退出1；`EMBED_*`、`IMAGE_*` 完全缺失只记录为可选能力缺口，不阻止核心就绪；可选用途部分配置仍退出1。退出2表示文件不能读取；通过只代表格式检查，不代表密钥有效、模型支持或数据库已迁移。
 
-文本、提取、嵌入、生图分别使用 `TEXT_*`、`EXTRACT_*`、`EMBED_*`、`IMAGE_*` 的 `BASE_URL/API_KEY/MODEL`。每个用途的地址/密钥未单独设置时，仅回退到旧 `OPENAI_BASE_URL/OPENAI_API_KEY`，不会自动复用其他用途的私钥。配置模式仍要求四用途完整，不允许伪造嵌入/生图模型。DeepSeek文本选择不等于其具备1024维嵌入或生图接口；另行核实和配置。
+文本、提取、嵌入、生图分别使用 `TEXT_*`、`EXTRACT_*`、`EMBED_*`、`IMAGE_*` 的 `BASE_URL/API_KEY/MODEL`。每个用途的地址/密钥未单独设置时，仅回退到旧 `OPENAI_BASE_URL/OPENAI_API_KEY`，不会自动复用其他用途的私钥。配置模式只要求文本和提取用途完整；嵌入、生图可缺省并在预检中显示为可选缺口，不允许伪造嵌入/生图模型。缺少嵌入时相关聊天检索以503失败并保持 fail-closed，不使用假向量；缺少生图时图片候选接口以503拒绝且不入队，Worker 也不会领取生图任务。任一可选用途出现部分配置都会报错。DeepSeek文本选择不等于其具备1024维嵌入或生图接口；另行核实和配置。
 
 Node22+可显式加载本地环境，仓库根执行：
 
 ```bash
 node --env-file=packages/runtime/.env.local --import tsx packages/runtime/src/server.ts
-# 第二个终端运行Worker，同样需要全部配置：
+# 第二个终端运行Worker，使用相同核心配置；未配置生图时跳过图片任务：
 node --env-file=packages/runtime/.env.local --import tsx packages/runtime/src/worker.ts
 ```
 
@@ -35,16 +35,16 @@ node --env-file=packages/runtime/.env.local --import tsx packages/runtime/src/wo
 - 使用 Node 22+ 的常驻进程或容器，TLS 由反向代理终止。只暴露 API；管理/worker 端点不得公开。
 - 配置明确的浏览器 Origin 白名单；不得 credentials + 任意 Origin。Runtime入口已限制正文1MiB并验证长度声明；配置模式按凭证摘要/匿名桶每分钟60请求（demo本机600），超限429；最多10000个活动桶，不能用未验证凭证的限流代替鉴权。它仅为单实例防线，代理层仍须限制连接/读取超时、分布式速率和真实用户模型配额，避免慢速请求或随机token绕过业务费用控制。
 - 每用户数据密钥用高熵主密钥包裹；主密钥放 KMS/部署秘密管理器，不在客户端、日志或 git。密钥丢失导致历史不可解密；轮换前先测试重新包裹与恢复。
-- 模型按用途分离配置（对话、提取、嵌入、生图），供应商是用户数据处理方；隐私政策须说明发出的字段与保留策略。
+- 模型按用途分离配置（对话、提取、嵌入、生图），供应商是用户数据处理方；当前已验证真实 DeepSeek 文本/提取调用，图片用途尚未配置；隐私政策须说明发出的字段与保留策略。
 - 外部模型生成的 JSON 先 schema 验证；文本不能变成数据库权限、任意工具或 SQL。模型请求以redirect:error拒绝任何HTTP重定向（不只私网目标），不将私有输入转发到配置外的新地址；配置端点本身仍由可信部署者审查，这不是任意端点的SSRF隔离。
 - 数据库服务角色仅 Runtime 使用；不得透传给积木、客户端或导出。
 - 多实例必须使用数据库事务/锁或 CAS，不能依赖单进程 Map 保证一次性授权；未验证并发时只运行单实例，且明确不构成完整生产隔离保证。
 
 ## 当前内测 Worker 启动
 
-服务端环境配置完成后运行 `RUNTIME_MODE=configured pnpm --filter @life-agent/runtime worker`。`WORKER_INTERVAL_MS` 默认60000，`WORKER_ONCE=true` 可单次执行后退出。它轮询加密状态、执行夜间整理/站内到期提醒与本地08:00成绩早报，并通过CAS提交；冲突下一轮重新读取。每轮另消费一个pgmq生图任务，90秒租约、最多3次领取、固定30秒延迟重试，状态保存在runtime_jobs；完整失败管理台仍未实现。模型单次请求60秒超时，不等于整个任务严格小于90秒，慢数据库或进程暂停仍可能导致租约过期与重复供应商费用。
+服务端核心环境配置完成后运行 `RUNTIME_MODE=configured pnpm --filter @life-agent/runtime worker`。若未配置 `IMAGE_*`，Worker 会跳过生图任务领取；若未配置 `EMBED_*`，聊天检索会 fail-closed。`WORKER_INTERVAL_MS` 默认60000，`WORKER_ONCE=true` 可单次执行后退出。它轮询加密状态、执行夜间整理/站内到期提醒与本地08:00成绩早报，并通过CAS提交；冲突下一轮重新读取。配置生图用途后，每轮另消费一个pgmq生图任务，90秒租约、最多3次领取、固定30秒延迟重试，状态保存在runtime_jobs；完整失败管理台仍未实现。模型单次请求60秒超时，不等于整个任务严格小于90秒，慢数据库或进程暂停仍可能导致租约过期与重复供应商费用。
 
-先应用全部迁移，包括异步队列迁移。配置模式 `POST /api/pa/candidates` 返回202与任务ID；客户端轮询 `GET /api/pa/candidate-jobs/:id`，仅当前最新任务可采用，PA确认/账号删除后不得采用迟到结果。没有Worker时任务会保持排队，不自动同步调用或切回演示。
+先应用全部迁移，包括异步队列迁移。配置模式已配置生图用途时，`POST /api/pa/candidates` 返回202与任务ID；客户端轮询 `GET /api/pa/candidate-jobs/:id`，仅当前最新任务可采用，PA确认/账号删除后不得采用迟到结果。没有Worker时任务会保持排队，不自动同步调用或切回演示。
 
 输入和结果均按本人DEK加密，pgmq仅含任务与账号标识。当前只接受供应商返回的base64 PNG/JPEG/WebP（签名校验、最大10MB），不下载供应商URL，避免隐式SSRF。新图像按本人DEK加密上传私有`life-agent-assets`桶，任务/候选只存引用。Runtime逐次验证资产owner/id/path/job及ready状态后解密为内联数据展示，不签发公共/短时直达Storage链接；旧内联结果兼容读取但不自动迁移。10MB原图因dataURL及密文编码约放大1.78倍，传输/缩略图优化未实现。任务入队与pgmq发送是一个数据库事务，但入队与候选状态CAS分属不同事务：失败可产生无主最新任务，必须重试生成，不自动采用；外部生成费用无法保证exactly-once。
 
@@ -88,3 +88,7 @@ RUN_LOCAL_DATABASE_TESTS=1 SUPABASE_URL=http://127.0.0.1:54321 \
 - 真模型核心保持 ≥98%，安全规则上下文召回100%，敏感未同意正式写入0；失败样例进入回归。
 - 真实生图候选确认/失败重试、真实 Web 与 Android 开发构建、系统推送和连续一周本人体验。
 - M1–M5 未完成项保持明确，不以 UI 占位宣称支持外部服务/社交/市场。
+
+## 部署调整记录
+
+- 2026-11-11：此前要求四用途齐全；现按已确认的分阶段安装方案调整为文本/提取必需、嵌入/生图可选。图片接口保留但当前不配置图片模型，能力缺口显式返回错误，不以演示服务代替。真实 DeepSeek 文本与提取各一次合成输入调用通过，仅证明连接可用，不代表模型质量验收通过。

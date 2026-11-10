@@ -1,5 +1,5 @@
 import { DomainError, MemoryBook, type Memory } from '@life-agent/core';
-import type { Models } from './providers.js';
+import { requireModelPurpose, type Models } from './providers.js';
 import { randomUUID } from 'node:crypto';
 // Unknown adapters get object-scoped identities: safe across changes/restarts, never reuse
 // persisted vectors on a guessed constructor-name match. Adapters can supply stable keys.
@@ -22,9 +22,10 @@ export function validVector(vector: unknown): vector is number[] {
  * Cache writes are staged so one failed embedding cannot leave partially modified memory state.
  * Pending, historical, archived, deleted and foreign-user contents never reach the provider.
  */
-export async function retrieveForChat(book: SemanticBook, query: string, models: Pick<Models, 'embed'|'embeddingModelKey'>, options: Omit<SemanticOptions, 'queryVector'> = {}) {
+export async function retrieveForChat(book: SemanticBook, query: string, models: Pick<Models, 'embed'|'embeddingModelKey'|'configuredPurposes'>, options: Omit<SemanticOptions, 'queryVector'> = {}) {
   const initial = book.retrieve(query, options);
   if (!initial.safeToAdvise) return initial;
+  requireModelPurpose(models,'embed');
   const eligible = (book.memories as EmbeddedMemory[])
     .filter(memory => memory.userId === book.userId && !book.deleted.has(memory.id) && (memory.state === 'active' || memory.state === 'faded'))
     .sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt) || a.id.localeCompare(b.id));

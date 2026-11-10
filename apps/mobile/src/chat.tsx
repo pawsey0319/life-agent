@@ -3,7 +3,7 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { api, endpoint, sendChat, type Entity } from './api';
 import { Button, Card, Empty, ErrorBox, Field, ui } from './ui';
 
-export function Chat({ blockId, paused, onChanged }: { blockId: string; paused?: boolean; onChanged: () => Promise<void> }) {
+export function Chat({ blockId, paused, onChanged, retrievalAvailable }: { retrievalAvailable?: boolean; blockId: string; paused?: boolean; onChanged: () => Promise<void> }) {
   const [sessions, setSessions] = useState<Entity[]>([]); const [selected, setSelected] = useState(''); const [messages, setMessages] = useState<Entity[]>([]); const [draft, setDraft] = useState(''); const [busy, setBusy] = useState(false); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   const selectedRef = useRef(''); const skipHistory = useRef('');
   const mounted = useRef(true); const epoch = useRef(0); const request = useRef(0); const abort = useRef<AbortController | null>(null);
@@ -34,6 +34,7 @@ export function Chat({ blockId, paused, onChanged }: { blockId: string; paused?:
     finally { if (alive(e, r)) { setBusy(false); if (abort.current === controller) abort.current = null; } }
   }
   return <Card title={blockId === 'pa' ? '和 PA 说说话' : '专属会话'} note="聊天与长期记忆是两件事。原文派生的临时回复仅在本轮显示，不进入后续上下文。">
+    {retrievalAvailable === false && <Text style={ui.tag}>嵌入未配置：聊天记忆检索暂不可用，相关发送会明确报错，不会静默降级或生成假回复。</Text>}
     {paused && <Text style={ui.tag}>此 Agent 已暂停，恢复后才能继续聊天</Text>}
     <View style={ui.row}><Button secondary disabled={busy || paused} onPress={() => void create()}>开启新会话</Button>{sessions.map((s, i) => <Button key={s.id} secondary={s.id !== selected} disabled={false} onPress={() => { if (s.id !== selected) { invalidate(); selectedRef.current = s.id; setSelected(s.id); setMessages([]); setDraft(''); setBusy(false); setLoading(true); } }}>{`会话 ${sessions.length - i}`}</Button>)}</View>
     {loading && <ActivityIndicator />}{error && <ErrorBox message={error} retry={() => void (selected ? history(selected) : loadSessions())} />}

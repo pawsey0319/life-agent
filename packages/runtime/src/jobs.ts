@@ -1,7 +1,7 @@
 import {DomainError} from '@life-agent/core';
 import {z} from 'zod';
 import {encrypt,decrypt,type SupabaseStore} from './storage.js';
-import type {Models} from './providers.js';
+import {hasModelPurpose,type Models} from './providers.js';
 import {assetBackend,uploadImageAsset,removeImageAsset,type AssetBackend,type ImageAsset} from './assets.js';
 
 export const imageJobPayloadSchema=z.object({name:z.string().trim().min(1).max(20000),appearance:z.string().trim().min(1).max(20000),personality:z.string().trim().min(1).max(20000),relationship:z.string().trim().min(1).max(20000),exclusions:z.string().max(20000)}).strict();
@@ -55,8 +55,9 @@ export async function readImageJob(store:SupabaseStore,userId:string,key:Buffer,
  return {job,candidate:{id:row.id,name:payload.name,description:`${payload.appearance}；${payload.personality}；${payload.relationship}`,createdAt:result.completedAt,...('asset' in result?{imageAsset:result.asset}:{imageUrl:result.imageUrl})}};
 }
 function permanent(error:unknown){return error instanceof z.ZodError||error instanceof DomainError&&['IMAGE_ASSET','EXTRACTION_FORMAT','PROVIDER_FORMAT'].includes(error.code);}
-export async function processImageJob(store:SupabaseStore,models:Pick<Models,'image'>,now=Date.now()){return processImageJobWithBackend(jobBackend(store),models,now);}
-export async function processImageJobWithBackend(backend:JobBackend,models:Pick<Models,'image'>,now=Date.now()):Promise<{status:'idle'|'completed'|'cancelled'|'failed'|'lease_lost';jobId?:string}>{
+export async function processImageJob(store:SupabaseStore,models:Pick<Models,'image'|'configuredPurposes'>,now=Date.now()){return processImageJobWithBackend(jobBackend(store),models,now);}
+export async function processImageJobWithBackend(backend:JobBackend,models:Pick<Models,'image'|'configuredPurposes'>,now=Date.now()):Promise<{status:'disabled'|'idle'|'completed'|'cancelled'|'failed'|'lease_lost';jobId?:string}>{
+ if(!hasModelPurpose(models,'image'))return {status:'disabled'};
  const claimed=await rpc(backend,'claim_runtime_job');
  if(!Array.isArray(claimed)||claimed.length>1)throw new DomainError('JOB_STORAGE','任务租约返回无效',503);
  if(!claimed.length)return {status:'idle'};

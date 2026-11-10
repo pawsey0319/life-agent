@@ -1,6 +1,8 @@
 # Apple Silicon Mac：Android 模拟器准备与验收
 
-本页为操作步骤，不代表已安装或验收。2026-11-10 已确认本机 arm64、约98GiB可用空间、Java25；未发现 Android Studio/SDK/adb。用户选择先模拟器、本机 Runtime。
+历史记录（2026-11-10）：本机 arm64、约98GiB可用空间、Java25，当时未发现 Android Studio/SDK/adb，用户选择先模拟器、本机 Runtime。
+
+进展更新（2026-11-11）：当前已确认本机 arm64，Android Studio、SDK、adb 与 API 36 ARM64 模拟器在线；原生 APK 尚未构建通过（许可证/构建元数据仍在处理），因此不能宣称 Android 原生验收通过。
 
 ## 1. 安装与检查
 
@@ -29,7 +31,7 @@ adb reverse tcp:8081 tcp:8081
 
 然后客户端使用 `EXPO_PUBLIC_API_URL=http://127.0.0.1:8787`。断开/重启模拟器后可能需重设。只转发本项目端口；撤销用 `adb reverse --remove tcp:8787`，另同理移除8081。
 
-真实配置时，客户端只放 Supabase URL 和 anon/publishable 公钥；服务密钥、DeepSeek Key、数据主密钥不得出现于 `EXPO_PUBLIC_`。Runtime 和 Worker 都在服务端环境运行。缺少嵌入/生图配置时完整 configured 模式不能启动，不以 demo 代替。
+真实配置时，客户端只放 Supabase URL 和 anon/publishable 公钥；服务密钥、DeepSeek Key、数据主密钥不得出现于 `EXPO_PUBLIC_`。Runtime 和 Worker 都在服务端环境运行。`TEXT_*` 与 `EXTRACT_*` 是 configured 核心要求；`EMBED_*`、`IMAGE_*` 可暂不配置。缺少嵌入时相关聊天检索返回503并 fail-closed，不静默切 demo 或伪造向量；缺少生图时图片候选返回503且不入队，Worker 不领取生图任务。任一用途只配置部分字段都会拒绝启动。
 
 ## 3. 两层验收，不混淆
 
@@ -53,7 +55,7 @@ pnpm --filter @life-agent/mobile exec expo run:android
 
 1. 启动、中文布局、键盘/滚动、返回键与前后台切换。
 2. Supabase 注册/登录/退出，错误凭据不进入工作台。
-3. PA 异步候选等待/失败/重试/确认锁，图片可显示。
+3. 当前未配置图片用途时，确认候选请求明确报能力未配置且无排队任务；待配置生图后，再验 PA 异步候选等待/失败/重试/确认锁与图片显示。
 4. 私聊、切换会话不显示旧回复；首次发送不丢消息。
 5. 敏感记忆先确认、冲突拒绝/接受、删除后消失。
 6. 自定义 Agent 组件记录、暂停只读、清单扩权确认、拆卸清理。
