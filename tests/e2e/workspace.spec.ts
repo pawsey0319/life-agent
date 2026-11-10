@@ -113,6 +113,24 @@ test('Notification timezone preference validates and persists without changing e
   await expect(zone).toHaveValue('America/New_York');
 });
 
+test('Chat sends the first message after creating its initial session',async({page,request})=>{
+  const api='http://127.0.0.1:8787/api'; const name=`首次会话-${Date.now()}`; const created=await request.post(`${api}/blocks`,{data:{name,domain:'reading',persona:'首次发送测试',components:['records']}}); const {block}=await created.json();
+  try { await page.goto('/'); await page.getByRole('button',{name:/03.*Agent 团队/}).click(); await page.getByRole('button',{name:`${name} · 运行中`,exact:true}).click(); await expect(page.getByLabel('消息',{exact:true})).toBeVisible(); await page.getByLabel('消息',{exact:true}).fill('首次消息路径测试'); await page.getByRole('button',{name:'发送消息',exact:true}).click(); await expect(page.getByLabel('消息',{exact:true})).toHaveValue(''); await expect(page.getByText('首次消息路径测试',{exact:true})).toBeVisible(); } finally { await request.delete(`${api}/blocks/${block.id}`); }
+});
+
+test('Chat ignores late history responses after session switching',async({page,request})=>{
+  const api='http://127.0.0.1:8787/api'; const name=`会话竞态-${Date.now()}`;
+  const created=await request.post(`${api}/blocks`,{data:{name,domain:'reading',persona:'竞态测试',components:['records']}}); expect(created.ok()).toBeTruthy(); const {block}=await created.json();
+  const first=await request.post(`${api}/sessions`,{data:{blockId:block.id}}); const second=await request.post(`${api}/sessions`,{data:{blockId:block.id}}); const a=(await first.json()).session; const b=(await second.json()).session; let releaseOld!:()=>void; let markOldDelivered!:()=>void; const oldDelivered=new Promise<void>(resolve=>{markOldDelivered=resolve;}); const holdOld=new Promise<void>(resolve=>{releaseOld=resolve;});
+  try {
+    await page.route('**/api/sessions/*/messages',async route=>{ const id=route.request().url().split('/sessions/')[1].split('/')[0]; const message=id===a.id?'旧会话迟到内容':'当前会话内容'; if(id===a.id) await holdOld; await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({messages:[{id:`msg-${id}`,role:'assistant',content:message,createdAt:new Date().toISOString()}]})}); if(id===a.id) markOldDelivered(); });
+    await page.goto('/'); await page.getByRole('button',{name:/03.*Agent 团队/}).click(); await page.getByRole('button',{name:`${name} · 运行中`,exact:true}).click();
+    await expect(page.getByRole('button',{name:'会话 1',exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'会话 2',exact:true}).click(); await page.getByRole('button',{name:'会话 1',exact:true}).click();
+    await expect(page.getByText('当前会话内容',{exact:true})).toBeVisible(); releaseOld(); await oldDelivered; await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))); await expect(page.getByText('当前会话内容',{exact:true})).toBeVisible(); await expect(page.getByText('旧会话迟到内容',{exact:true})).toHaveCount(0);
+  } finally { await request.delete(`${api}/blocks/${block.id}`); }
+});
+
 test('Mobile viewport remains usable without horizontal overflow',async({page})=>{
   await page.setViewportSize({width:390,height:844});
   await page.goto('/');
