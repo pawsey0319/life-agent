@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 export type Tier = 'core'|'normal'|'trivial';
-export type Memory = {id:string; userId:string; content:string; subject:string; category:string; tier:Tier; state:'active'|'faded'|'archived'|'historical'; reason:string; sensitive:boolean; createdAt:string; lastUsedAt:string; sessionIds:string[]; pinned:boolean; source?:string};
+export type Memory = {id:string; userId:string; content:string; subject:string; category:string; tier:Tier; state:'active'|'faded'|'archived'|'historical'; reason:string; sensitive:boolean; createdAt:string; lastUsedAt:string; sessionIds:string[]; pinned:boolean; source?:string; embedding?:number[]; embeddingContent?:string; embeddingModelKey?:string};
+export type RetrievalOptions={domain?:string;now?:number;queryVector?:number[]};
+export function activation(lastUsedAt:string,now=Date.now()){const age=Math.max(0,now-Date.parse(lastUsedAt));return Number.isFinite(age)?Math.pow(0.5,age/(30*86400000)):0;}
+export function cosine(a:number[],b:number[]){if(a.length!==b.length||!a.length)return 0;let dot=0,aa=0,bb=0;for(let i=0;i<a.length;i++){dot+=a[i]!*b[i]!;aa+=a[i]!*a[i]!;bb+=b[i]!*b[i]!;}return aa&&bb?Math.max(-1,Math.min(1,dot/Math.sqrt(aa*bb))):0;}
+function keywordScore(query:string,text:string){const normalized=query.toLowerCase();const target=text.toLowerCase();const tokens=new Set(normalized.match(/[a-z0-9_]+|[\p{Script=Han}]/gu)??[]);return tokens.size?[...tokens].filter(t=>target.includes(t)).length/tokens.size:0;}
+function topicMatches(memory:Memory,query:string,domain?:string){const terms:Record<string,string>={key_person:'家人|朋友|父母|母亲|父亲|伴侣|person|family|friend',life_event:'经历|毕业|结婚|搬家|生日|event|birthday|marriage',long_goal:'目标|计划|未来|goal|plan|career',pa_bond:'陪伴|关系|我们|宠物|bond|companion'};return !!domain&&(memory.category===domain||memory.subject.toLowerCase().includes(domain.toLowerCase()))||new RegExp(terms[memory.category]??'(?!)','i').test(query);}
+
 export class DomainError extends Error { constructor(public code:string, message:string, public status=400){super(message);} }
 export const id=()=>randomUUID();
 export const iso=()=>new Date().toISOString();
@@ -31,24 +37,23 @@ export class MemoryBook {
  remove(memoryId:string){this.deleted.add(memoryId);this.memories=this.memories.filter(m=>m.id!==memoryId);this.pending=this.pending.filter(p=>p.oldId!==memoryId);this.feedback=this.feedback.filter(f=>f.memoryId!==memoryId);}
  retry(memoryId:string,c:Candidate){return this.deleted.has(memoryId)?{decision:'DROP'}:this.remember(c);}
  nightly(now=Date.now()){for(const m of this.memories){if(m.tier==='core'||m.state==='historical'||m.pinned)continue;if(m.tier==='normal'&&new Set(m.sessionIds).size>=3){m.tier='core';m.reason='three_distinct_sessions';m.state='active';continue;}const days=(now-Date.parse(m.lastUsedAt))/86400000;const fade=m.tier==='normal'?90:10;const archive=m.tier==='normal'?270:40;if(days>=archive)m.state='archived';else if(days>=fade)m.state='faded';}}
- retrieve(query:string){const eligible=this.memories.filter(m=>m.state==='active'||m.state==='faded');const rules=eligible.filter(m=>m.tier==='core'&&alwaysLoadCategories.has(m.category));const other=eligible.filter(m=>!rules.includes(m)).map(m=>({m,score:[...query.toLowerCase()].filter(c=>m.content.toLowerCase().includes(c)).length})).sort((a,b)=>b.score-a.score).slice(0,8).map(({m})=>({...m,uncertain:m.state==='faded'}));return {rules:rules.slice(0,20),memories:other,overflow:rules.length>20,safeToAdvise:rules.length<=20};}
+ retrieve(query:string,options:RetrievalOptions={}){
+  const now=options.now??Date.now();
+  const eligible=this.memories.filter(m=>m.userId===this.userId&&!this.deleted.has(m.id)&&(m.state==='active'||m.state==='faded'));
+  const rules=eligible.filter(m=>m.tier==='core'&&alwaysLoadCategories.has(m.category));
+  const topicCore=eligible.filter(m=>m.tier==='core'&&!alwaysLoadCategories.has(m.category)&&topicMatches(m,query,options.domain));
+  const memories=eligible.filter(m=>m.tier!=='core').map(m=>{
+   const lexical=keywordScore(query,`${m.subject} ${m.content}`);
+   const semantic=options.queryVector&&m.embedding&&m.embeddingContent===m.content?Math.max(0,cosine(options.queryVector,m.embedding)):0;
+   const relevance=options.queryVector?0.65*semantic+0.35*lexical:lexical;
+   return {m,score:relevance*(0.5+0.5*activation(m.lastUsedAt,now))*(m.state==='faded'?0.7:1),relevance};
+  }).filter(x=>x.relevance>0).sort((a,b)=>b.score-a.score||a.m.id.localeCompare(b.m.id)).slice(0,8).map(({m,score})=>({...m,uncertain:m.state==='faded',score}));
+  return {rules:rules.slice(0,20),topicCore,memories,overflow:rules.length>20,safeToAdvise:rules.length<=20};
+ }
 }
-export type BlockIdentity={id:string;status:'active'|'paused';external?:boolean;purposes:string[]};
+export { VersionedGateway as Gateway, defaultFieldRegistry, fieldRegistrySchema } from './authorization.js';
+export type { VersionedBlockIdentity as BlockIdentity, AuthorizationInput as GrantInput, VersionedGrantRequest as GrantRequest, VersionedGrant as Grant, FieldRegistry } from './authorization.js';
 export const fields=[{id:'schedule',sensitivity:'normal'},{id:'habit_completion',sensitivity:'normal'},{id:'records',sensitivity:'normal'},{id:'health',sensitivity:'sensitive'},{id:'raw_messages',sensitivity:'raw'},{id:'secrets',sensitivity:'forbidden'}] as const;
-export type GrantInput={sourceBlockId:string;granteeBlockId:string;field:string;purpose:string;timeRange?:{from:string;to:string};sessionId?:string};
-export type GrantRequest=GrantInput&{id:string;status:'pending'|'allowed'|'denied'|'consumed';expiresAt:string};
-export type Grant=GrantInput&{id:string;createdAt:string};
-export class Gateway {
- requests:GrantRequest[]=[];grants:Grant[]=[];audit:{id:string;action:string;at:string;requestId?:string;field?:string}[]=[];
- constructor(readonly blocks:()=>BlockIdentity[]){}
- log(action:string,field?:string,requestId?:string){this.audit.push({id:id(),action,at:iso(),...(field?{field}:{}),...(requestId?{requestId}:{})});}
- check(x:GrantInput){const f=fields.find(f=>f.id===x.field);const source=this.blocks().find(b=>b.id===x.sourceBlockId);const target=this.blocks().find(b=>b.id===x.granteeBlockId);if(!f||!source||!target||source.status!=='active'||target.status!=='active'||!target.purposes.includes(x.purpose)){this.log('deny',x.field);throw new DomainError('FORBIDDEN','无效空间、字段或用途',403);}if(source.id===target.id||(source.id!=='pa'&&target.id!=='pa')){this.log('deny',x.field);throw new DomainError('FORBIDDEN','跨空间授权必须由 PA 参与，不允许专业积木直连',403);}if(x.timeRange&&(!Number.isFinite(Date.parse(x.timeRange.from))||!Number.isFinite(Date.parse(x.timeRange.to))||Date.parse(x.timeRange.from)>Date.parse(x.timeRange.to))){this.log('deny',x.field);throw new DomainError('FORBIDDEN','时间范围无效',403);}if(f.sensitivity==='forbidden'){this.log('deny',x.field);throw new DomainError('FORBIDDEN','该字段禁止授权',403);}if(f.sensitivity==='raw'){if(target.id!=='pa'||!x.sessionId||!x.timeRange||!Number.isFinite(Date.parse(x.timeRange.from))||!Number.isFinite(Date.parse(x.timeRange.to))||Date.parse(x.timeRange.from)>Date.parse(x.timeRange.to))throw new DomainError('FORBIDDEN','原文仅 PA 可申请绑定本轮会话及时间段的单次读取',403);}return {f,target};}
- request(x:GrantInput){try{const {f,target}=this.check(x);if(f.sensitivity==='normal'||(f.sensitivity==='sensitive'&&!target.external)){const grant=this.grants.find(g=>g.sourceBlockId===x.sourceBlockId&&g.granteeBlockId===x.granteeBlockId&&g.field===x.field&&g.purpose===x.purpose&&JSON.stringify(g.timeRange)===JSON.stringify(x.timeRange));if(grant){this.log('allow_long',x.field,grant.id);return {decision:'ALLOW',grant};}}const request:GrantRequest={...x,id:id(),status:'pending',expiresAt:new Date(Date.now()+120000).toISOString()};this.requests.push(request);this.log('ask',x.field,request.id);return {decision:'ASK',request};}catch(e){this.log('deny',x.field);throw e;}}
- decide(requestId:string,allow:boolean){const r=this.requests.find(r=>r.id===requestId);if(!r){this.log('deny',undefined,requestId);throw new DomainError('NOT_FOUND','授权申请不存在',404);}if(r.status!=='pending'){this.log('deny',r.field,r.id);throw new DomainError('CONFLICT','授权已处理',409);}this.check(r);r.status=Date.parse(r.expiresAt)>Date.now()&&allow?'allowed':'denied';this.log(r.status,r.field,r.id);return r;}
- create(x:GrantInput,confirmedSensitive=false){const {f,target}=this.check(x);if(f.sensitivity==='raw'||(f.sensitivity==='sensitive'&&(target.external||!confirmedSensitive))){this.log('deny',x.field);throw new DomainError('FORBIDDEN','此字段不可建立长期授权或需在授权中心明确确认',403);}const g={...x,id:id(),createdAt:iso()};this.grants.push(g);this.log('grant',x.field,g.id);return g;}
- consume(requestId:string,binding:GrantInput){const r=this.requests.find(r=>r.id===requestId);if(!r||r.status!=='allowed'||Date.parse(r.expiresAt)<=Date.now()){this.log('deny',r?.field,requestId);throw new DomainError('FORBIDDEN','授权已过期或已消费',403);}this.check(r);if(JSON.stringify([r.sourceBlockId,r.granteeBlockId,r.field,r.purpose,r.sessionId,r.timeRange])!==JSON.stringify([binding.sourceBlockId,binding.granteeBlockId,binding.field,binding.purpose,binding.sessionId,binding.timeRange])){this.log('deny',r.field,r.id);throw new DomainError('FORBIDDEN','授权范围不匹配',403);}r.status='consumed';this.log('read',r.field,r.id);return true;}
- revoke(grantId:string){this.grants=this.grants.filter(g=>g.id!==grantId);this.log('revoke',undefined,grantId);}
-}
 export const manifestSchema=z.object({version:z.literal(1),conversation:z.object({enabled:z.boolean()}).strict(),capabilities:z.array(z.enum(['checkin','records','plans'])),data:z.object({fields:z.array(z.enum(['schedule','habit_completion','records','health'])),purposes:z.array(z.enum(['answer','summary']))}).strict(),ui:z.object({components:z.array(z.enum(['checkin','records','plans']))}).strict(),events:z.array(z.enum(['record.created','schedule.due']))}).strict();
 export function namespace<T extends {userId:string;blockId:string}>(rows:T[],userId:string,blockId:string){return rows.filter(r=>r.userId===userId&&r.blockId===blockId);}
 export function handoff(content:string,blocks:{id:string;domain:string;status:string}[]){const domains=[['nutrition','热量|减脂|食谱|蛋白质|配餐|碳水|营养|饮食|nutrition'],['fitness','健身|运动|训练|增肌|深蹲|卧推|跑步|硬拉|fitness'],['styling','穿搭|搭配|穿什么|衬衫|裤子|鞋|衣橱|配色|outfit|styling'],['finance','理财|投资|股票|基金|预算|资产|债券|消费|支出|finance|financial'],['health','健康|医疗|伤病|药|痛|发烧|化验|体检|经期|health|medical']];for(const [domain,pattern] of domains){if(new RegExp(pattern!,'i').test(content)){const block=blocks.find(b=>b.status==='active'&&(b.domain.includes(domain!)||content.toLowerCase().includes(b.domain.toLowerCase())));return {professional:true,blockId:block?.id,domain};}}return {professional:false};}

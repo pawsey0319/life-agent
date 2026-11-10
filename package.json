@@ -15,6 +15,7 @@
     "check": "pnpm typecheck && pnpm test && pnpm build:web",
     "test:http": "node tests/http-smoke.mjs && node tests/http-adversarial.mjs && node tests/http-grants.mjs",
     "test:e2e": "playwright test",
+    "test:database": "tsx --test tests/database.integration.ts",
     "check:repository": "node tests/check-repository.mjs",
     "serve:export": "node tests/serve-web.mjs"
   },

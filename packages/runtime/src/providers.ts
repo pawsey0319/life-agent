@@ -1,12 +1,15 @@
 import { DomainError, candidateSchema } from '@life-agent/core';
-export interface Models {text(messages:{role:string;content:string}[]):Promise<string>;extract(content:string):Promise<unknown[]>;embed(content:string):Promise<number[]>;image(prompt:string):Promise<string|undefined>}
+import { createHash } from 'node:crypto';
+export interface Models {readonly embeddingModelKey?:string;text(messages:{role:string;content:string}[]):Promise<string>;extract(content:string):Promise<unknown[]>;embed(content:string):Promise<number[]>;image(prompt:string):Promise<string|undefined>}
 export class DemoModels implements Models {
+ readonly embeddingModelKey:string='demo:character-vector:1024:v1';
  async text(messages:{role:string;content:string}[]){return `【演示回复，非真实 AI】我听见你说：${messages.at(-1)?.content??''}。可以告诉我你希望我怎样陪伴你。`;}
  async extract(content:string){return /记住|remember/i.test(content)?[{content,user_signal:'remember'}]:[];}
  async embed(content:string){return Array.from({length:1024},(_,i)=>((content.charCodeAt(i%Math.max(content.length,1))||0)%100)/100);}
  async image(_prompt:string){return undefined;}
 }
 export class OpenAIModels implements Models {
+ get embeddingModelKey(){const endpoint=new URL(this.config.baseUrl);endpoint.username='';endpoint.password='';endpoint.search='';endpoint.hash='';const base=endpoint.toString().replace(/\/+$/,'');return `openai-compatible:1024:${createHash('sha256').update(JSON.stringify([base,this.config.embedModel])).digest('hex')}`;}
  constructor(readonly config:{baseUrl:string;apiKey:string;textModel:string;extractModel:string;embedModel:string;imageModel:string}){}
  async call(path:string,payload:unknown){let response:Response;try{response=await fetch(`${this.config.baseUrl.replace(/\/$/,'')}/${path}`,{method:'POST',headers:{Authorization:`Bearer ${this.config.apiKey}`,'Content-Type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(60000)});}catch{throw new DomainError('PROVIDER_UNAVAILABLE','模型服务连接失败',503);}if(!response.ok)throw new DomainError('PROVIDER_ERROR',`模型服务返回 ${response.status}`,503);return await response.json() as Record<string,unknown>;}
  async text(messages:{role:string;content:string}[]){const data=await this.call('chat/completions',{model:this.config.textModel,messages});const choices=data.choices as {message:{content:string}}[]|undefined;const result=choices?.[0]?.message.content;if(typeof result!=='string')throw new DomainError('PROVIDER_FORMAT','模型响应无文本',503);return result;}

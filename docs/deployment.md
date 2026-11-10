@@ -13,7 +13,7 @@
 2. 应用 `supabase/migrations`，确认 pgvector/pgmq 扩展在目标托管版本可用。数据库管理员执行迁移，客户端永远不拿服务角色。
 3. 对允许直读的本人业务表启用 RLS；敏感受控表默认不开放写入。逐表验证 anon/本人/其他用户/Runtime 角色。
 4. 以两个真实用户、两个不同命名空间测试跨用户外键、直接表访问、核心夜间修改、审计删除与单次授权并发。
-5. 如果存在 Runtime 状态快照与规范化业务表两层存储，必须明确哪层是权威，禁止在两者之间双写出不一致的授权/删除；没验证的迁移不能据“应用成功”宣称数据层隔离通过。
+5. 活动权威为 `runtime_entities` 逐实体密文，事务 RPC `save_runtime_projection` 同时执行关系/核心保护、审计追加、CAS；`runtime_projection_state` 只保存修订与包裹密钥。原版 `runtime_state` 遗留数据会触发 `MIGRATION_REQUIRED`，没有隐式升级。新项目必须应用两个迁移；旧内测项目在离线受控迁移前不要用新代码覆盖数据。原始专用领域表尚未作为 Runtime 活动数据源，不把两套表“双写”混称集成。迁移未经真实 Postgres 执行，不宣称数据层隔离通过。
 
 ## Runtime
 - 使用 Node 22+ 的常驻进程或容器，TLS 由反向代理终止。只暴露 API；管理/worker 端点不得公开。
@@ -40,6 +40,17 @@
 - 拆卸包含命名空间记录/会话/授权/队列/摘要，保留的 PA 记忆仅标注来源已删。
 - 账号注销重新验证身份，删除在线活动数据与 DEK，再删除 Auth 账户；失败必须可见且能安全重试。
 - 外部导出文件、供应商日志、托管备份不可能凭线上 DELETE 即刻抹除。部署者必须登记备份周期/最长保留/恢复时应用删除清单策略。
+
+## 本地数据库测试入口
+
+应用迁移后，使用独立本地 Supabase 的环境变量运行：
+
+```bash
+RUN_LOCAL_DATABASE_TESTS=1 SUPABASE_URL=http://127.0.0.1:54321 \
+  SUPABASE_SERVICE_ROLE_KEY=... SUPABASE_ANON_KEY=... pnpm test:database
+```
+
+此测试创建随机测试账号，验证加密持久化、CAS 双写、浏览器写入/RPC拒绝与账号清理，最后删除测试账号。它拒绝非 loopback URL；未显式开启时报告 SKIP（不是通过数据库验收）。`supabase/scripts/verify_m0.sql` 是额外 schema/权限断言，不替代行为测试。不要把部署密钥写入命令历史或仓库，实际执行推荐从临时安全环境注入。
 
 ## 上线前必验
 - 真 Supabase RLS/RPC/触发器/并发一次性凭证与跨用户用例。

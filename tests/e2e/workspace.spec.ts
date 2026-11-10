@@ -42,6 +42,63 @@ test('Web user can hatch PA, consent to sensitive memory and record a habit',asy
   await expect(page.getByLabel('编辑组件记录',{exact:true})).toHaveValue('今天阅读十分钟');
 });
 
+test('Manifest scope shrink applies, expansion requires reject or explicit approval, and old consent stays invalid',async({page,request})=>{
+  const api='http://127.0.0.1:8787/api';
+  const name=`清单生命周期-${Date.now()}`;
+  const created=await request.post(`${api}/blocks`,{data:{name,domain:'reading',persona:'清单生命周期浏览器验证',components:['checkin','records','plans']}});
+  expect(created.ok()).toBeTruthy();
+  const {block}=await created.json();
+  const original=block.manifest;
+  expect(original).toBeTruthy();
+  const shrink={...original,capabilities:['records'],data:{fields:['records'],purposes:['answer']},ui:{components:['records']},events:[]};
+  try {
+    await page.goto('/');
+    await page.getByRole('button',{name:/03.*Agent 团队/}).click();
+    await page.getByRole('button',{name:`${name} · 运行中`,exact:true}).click();
+    await expect(page.getByText('Agent 接口清单',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'编辑接口清单 JSON',exact:true}).click();
+    await page.getByLabel('接口清单 JSON',{exact:true}).fill(JSON.stringify(shrink));
+    await page.getByRole('button',{name:'校验并提交接口清单',exact:true}).click();
+    await expect(page.getByRole('button',{name:'编辑接口清单 JSON',exact:true})).toBeVisible();
+    await expect(page.getByText('范围扩大，等待你重新同意',{exact:true})).toHaveCount(0);
+    let snapshot=await (await request.get(`${api}/bootstrap`)).json();
+    let current=snapshot.blocks.find((item:{id:string})=>item.id===block.id);
+    expect(current.manifest.data.fields).toEqual(['records']);
+    expect(current.manifestVersion).toBeGreaterThan(block.manifestVersion);
+    const grantResponse=await request.post(`${api}/grants`,{data:{sourceBlockId:block.id,granteeBlockId:'pa',field:'records',purpose:'answer'}});
+    expect(grantResponse.ok()).toBeTruthy();
+    const {grant}=await grantResponse.json();
+    async function proposeExpansion(){
+      await page.getByRole('button',{name:'编辑接口清单 JSON',exact:true}).click();
+      await page.getByLabel('接口清单 JSON',{exact:true}).fill(JSON.stringify(original));
+      await page.getByRole('button',{name:'校验并提交接口清单',exact:true}).click();
+      await expect(page.getByText('范围扩大，等待你重新同意',{exact:true})).toBeVisible();
+      await expect(page.getByRole('button',{name:'编辑接口清单 JSON',exact:true})).toBeDisabled();
+      await expect(page.getByRole('button',{name:'发送消息',exact:true})).toBeDisabled();
+    }
+    await proposeExpansion();
+    await page.getByRole('button',{name:'拒绝扩大，保留原清单',exact:true}).click();
+    await expect(page.getByText('范围扩大，等待你重新同意',{exact:true})).toHaveCount(0);
+    snapshot=await (await request.get(`${api}/bootstrap`)).json();
+    current=snapshot.blocks.find((item:{id:string})=>item.id===block.id);
+    expect(current.manifest.data.fields).toEqual(['records']);
+    expect(current.pendingManifest??null).toBeNull();
+    expect((await request.post(`${api}/grants/${grant.id}/read`,{data:{}})).ok()).toBeFalsy();
+    await proposeExpansion();
+    await page.getByRole('button',{name:'同意扩大并应用新清单',exact:true}).click();
+    await expect(page.getByText('范围扩大，等待你重新同意',{exact:true})).toHaveCount(0);
+    snapshot=await (await request.get(`${api}/bootstrap`)).json();
+    current=snapshot.blocks.find((item:{id:string})=>item.id===block.id);
+    expect(current.manifest).toEqual(original);
+    expect(current.pendingManifest??null).toBeNull();
+    expect((await request.post(`${api}/grants/${grant.id}/read`,{data:{}})).ok()).toBeFalsy();
+    await page.getByRole('button',{name:/04.*授权中心/}).click();
+    await expect(page.getByText('旧许可不可读取，请在授权中心主动重新设置',{exact:true}).first()).toBeVisible();
+  } finally {
+    await request.delete(`${api}/blocks/${block.id}`);
+  }
+});
+
 test('Mobile viewport remains usable without horizontal overflow',async({page})=>{
   await page.setViewportSize({width:390,height:844});
   await page.goto('/');
