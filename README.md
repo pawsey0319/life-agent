@@ -50,7 +50,7 @@ CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" pnpm 
 
 实际执行结果与未完成边界见[验证记录](docs/validation.md)，不以文档中的验收目标冒充结果。配置模式变量见[服务端环境示例](packages/runtime/.env.example)和[客户端环境示例](apps/mobile/.env.example)。这些示例不会自动加载；显式导出变量或使用部署平台的秘密配置。
 
-> 当前配置模式采用 per-user DEK 加密聚合与 CAS，并未接入迁移中的完整规范化逐对象写入。这是工程内测骨架，不是完整 M0 生产验收。pgvector 语义检索与 pgmq 消费仍须集成；不能仅因为 SQL 已提供就宣称运行时已接通。
+> 当前配置模式采用 per-user DEK 逐实体加密、事务 CAS 与受控核心变更，旧聚合快照不会隐式升级。Runtime 已接入1024维嵌入混合检索、pgmq生图任务消费与私有Storage密文资产；检索在解密后的本人候选中执行，并非数据库明文向量索引。专用领域表并非活动数据源，真实Supabase/pgmq/Storage、供应商、原生设备仍未验收；这是工程内测交付，不是完整 M0 生产验收。具体替代实现及限制见[验证记录](docs/validation.md)。
 
 ## 核心产品规则
 - 每账号一只 PA，确认后不能删除重孵；注销账号才一起删除。

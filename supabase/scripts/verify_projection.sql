@@ -7,6 +7,8 @@ declare u uuid:=gen_random_uuid(); v uuid:=gen_random_uuid(); rows jsonb; result
 begin
  if (select rolbypassrls or rolcanlogin from pg_roles where rolname='life_memory_writer') then raise exception 'FAIL controlled role broader than required'; end if;
  if has_function_privilege('service_role','public.apply_controlled_projection(uuid,text,jsonb)','EXECUTE') then raise exception 'FAIL private helper exposed'; end if;
+ if not has_function_privilege((select proowner from pg_proc where oid='public.save_runtime_projection(uuid,text,integer,jsonb,jsonb)'::regprocedure), 'public.apply_controlled_projection(uuid,text,jsonb)'::regprocedure::oid, 'EXECUTE') then raise exception 'FAIL transaction owner cannot execute private helper'; end if;
+ if exists(select 1 from pg_auth_members where roleid=(select oid from pg_roles where rolname='life_memory_writer')) then raise exception 'FAIL temporary controlled-role membership remains'; end if;
  insert into auth.users(id) values(u),(v);
  rows:=jsonb_build_array(jsonb_build_object('kind','memory','id','m1','ordinal',0,'ciphertext','encrypted-fixture','fingerprint','stable-content-hmac','guard',jsonb_build_object('tier','core','state','active','pinned',false,'sensitive',false,'subjectKey','subject-hmac')));
  result:=public.save_runtime_projection(u,'wrapped-test-key',0,rows);

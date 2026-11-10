@@ -350,6 +350,13 @@ returns void language plpgsql security definer set search_path = pg_catalog, pub
 begin
   delete from public.memories where id = p_memory_id and user_id = p_user_id;
 end $$;
+-- Fresh baseline: transferring ownership requires SET ROLE membership even without superuser.
+do $$ begin
+  if current_user in ('anon','authenticated','service_role','life_memory_writer') then
+    raise exception 'migration must run as a trusted deployment owner';
+  end if;
+  execute format('grant life_memory_writer to %I', current_user);
+end $$;
 grant create on schema public to life_memory_writer;
 alter function public.controlled_memory_edit(uuid,uuid,text,text,text,boolean) owner to life_memory_writer;
 alter function public.controlled_memory_delete(uuid,uuid) owner to life_memory_writer;
@@ -358,6 +365,7 @@ revoke all on function public.controlled_memory_edit(uuid,uuid,text,text,text,bo
 revoke all on function public.controlled_memory_delete(uuid,uuid) from public, anon, authenticated;
 grant execute on function public.controlled_memory_edit(uuid,uuid,text,text,text,boolean) to service_role;
 grant execute on function public.controlled_memory_delete(uuid,uuid) to service_role;
+do $$ begin execute format('revoke life_memory_writer from %I', current_user); end $$;
 
 -- Browser access is read-only for owned, non-sensitive display data; all writes go through Runtime/RPC.
 do $$ declare t text; begin

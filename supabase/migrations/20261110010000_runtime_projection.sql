@@ -66,10 +66,23 @@ begin
  fingerprint=p_row->>'fingerprint',guard=coalesce(p_row->'guard','{}'::jsonb),block_id=p_row->>'block_id',parent_id=p_row->>'parent_id'
  where user_id=p_user_id and kind='memory' and entity_id=p_id; end if;
 end $$;
+-- Fresh baseline: transferring ownership requires SET ROLE membership even without superuser.
+do $$ begin
+  if current_user in ('anon','authenticated','service_role','life_memory_writer') then
+    raise exception 'migration must run as a trusted deployment owner';
+  end if;
+  execute format('grant life_memory_writer to %I', current_user);
+end $$;
 grant create on schema public to life_memory_writer;
 alter function public.apply_controlled_projection(uuid,text,jsonb) owner to life_memory_writer;
 revoke create on schema public from life_memory_writer;
 revoke all on function public.apply_controlled_projection(uuid,text,jsonb) from public,anon,authenticated,service_role;
+-- save_runtime_projection is owned by this same deployment role, which needs
+-- explicit helper execution after ownership transfer and PUBLIC revocation.
+do $$ begin
+  execute format('grant execute on function public.apply_controlled_projection(uuid,text,jsonb) to %I', current_user);
+  execute format('revoke life_memory_writer from %I', current_user);
+end $$;
 
 create function public.save_runtime_projection(p_user_id uuid,p_wrapped_key text,p_revision integer,
  p_entities jsonb,p_core_actions jsonb default '[]'::jsonb)
