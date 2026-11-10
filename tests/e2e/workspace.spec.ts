@@ -120,3 +120,32 @@ test('Mobile viewport remains usable without horizontal overflow',async({page})=
   const sizes=await page.evaluate(()=>({width:window.innerWidth,scroll:document.documentElement.scrollWidth}));
   expect(sizes.scroll).toBeLessThanOrEqual(sizes.width+1);
 });
+
+test('Manifest-disabled conversation hides chat and component writes use capability/UI intersection',async({page,request})=>{
+  const api='http://127.0.0.1:8787/api'; const name=`接口约束-${Date.now()}`;
+  const response=await request.post(`${api}/blocks`,{data:{name,domain:'reading',persona:'验证会话与组件接口约束',components:['checkin','records','plans']}});
+  expect(response.ok()).toBeTruthy(); const {block}=await response.json();
+  const manifest={...block.manifest,conversation:{enabled:false},capabilities:['records','checkin'],ui:{components:['records']}};
+  try {
+    expect((await request.put(`${api}/blocks/${block.id}/manifest`,{data:manifest})).ok()).toBeTruthy();
+    await page.goto('/'); await page.getByRole('button',{name:/03.*Agent 团队/}).click();
+    await page.getByRole('button',{name:`${name} · 运行中`,exact:true}).click();
+    await expect(page.getByText('会话已由接口清单关闭',{exact:true})).toBeVisible();
+    await expect(page.getByLabel('消息',{exact:true})).toHaveCount(0);
+    await expect(page.getByRole('button',{name:'开启新会话',exact:true})).toHaveCount(0);
+    await expect(page.getByRole('button',{name:'记录表',exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'打卡',exact:true})).toHaveCount(0);
+    await expect(page.getByRole('button',{name:'计划清单',exact:true})).toHaveCount(0);
+    await page.getByLabel('组件记录内容',{exact:true}).fill('仅记录表允许写入');
+    await page.getByRole('button',{name:'保存组件记录',exact:true}).click();
+    await expect(page.getByLabel('编辑组件记录',{exact:true})).toHaveValue('仅记录表允许写入');
+    const noComponents={...manifest,capabilities:[],ui:{components:[]}};
+    expect((await request.put(`${api}/blocks/${block.id}/manifest`,{data:noComponents})).ok()).toBeTruthy();
+    await page.getByRole('button',{name:'刷新工作台',exact:true}).click();
+    await expect(page.getByText('当前清单没有同时声明能力与界面的组件，无法新增记录。',{exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'保存组件记录',exact:true})).toBeDisabled();
+    await expect(page.getByLabel('组件记录内容',{exact:true})).not.toBeEditable();
+    const records=await (await request.get(`${api}/blocks/${block.id}/records`)).json();
+    expect(records.records).toHaveLength(1); expect(records.records[0].component).toBe('records');
+  } finally { await request.delete(`${api}/blocks/${block.id}`); }
+});
