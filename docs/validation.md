@@ -12,8 +12,8 @@
 | HTTP 流程与攻击检查 | 通过 | fresh loopback demo真实进程；smoke/adversarial/grants三脚本，含孵化锁、SSE、敏感确认、删除、拆卸、身份伪造、原文单次读取与临时派生、普通字段排除敏感记录 |
 | Expo Web 导出 | 通过 | `EXPO_PUBLIC_MODE=demo EXPO_PUBLIC_API_URL=http://127.0.0.1:8787 pnpm build:web` |
 | 浏览器桌面/窄屏 | 通过 | Playwright + 本机Chrome，8项：首次发送自动创建会话、迟到历史跨会话切换隔离、启动无JS错误、孵化/敏感记忆/积木记录、清单缩权与扩权拒绝/同意及旧授权失效、通知IANA时区验证及刷新持久化、390px无横向溢出、关闭会话不加载聊天及组件能力/UI交集只读控制；另复查手机重复页脚修复 |
-| 数据库迁移/RLS/并发 | 未执行 | 本机没有 Docker/Supabase/psql；SQL 提交不等于验证 |
-| 配置模式与真实供应商 | 未执行 | 未获得真实云项目/模型配置，无付费调用验收 |
+| 数据库迁移/RLS/并发 | 部分真实验收通过 | 独立托管Postgres17.11：四份迁移已执行；真实API加密写入/CAS单胜/核心保护通过；verify_projection/jobs/assets三脚本在TLS验证连接下通过且fixture回滚。完整双用户浏览器RLS与配置模式端到端仍待验 |
+| 配置模式与真实供应商 | 数据库与Storage部分通过，模型未执行 | 已连独立Supabase；真实密文图片上传/鉴权解密/公共地址拒绝/删除后对象清空通过，临时账号清理。DeepSeek文本已配置但未付费调用；嵌入/生图配置仍缺 |
 | Android JS/Hermes 导出 | 通过 | demo模式 `expo export --platform android --output-dir dist-android`，1362模块、Hermes bundle生成；产物已忽略，不含APK |
 | Android 原生构建/真机 | 未执行 | JS导出不等于Gradle/APK构建、设备交互或系统推送验收 |
 | 真实模型300条标注 | 未执行 | 见模型验收协议；不生成虚假准确率 |
@@ -28,6 +28,12 @@ CI定义新增独立demo服务就绪检查、HTTP三脚本及Chromium浏览器�
 ## 数据库静态审查修正
 
 2026-11-10复查修正：受控角色不再要求BYPASSRLS，改为专用角色RLS策略；核心投影删除的私有函数角色先于Auth存在性查询被识别，避免缺少Auth读权限导致受控删除失败。补充角色非登录/非旁路及私有函数ACL断言。**均未真实执行**，属于新项目基线迁移修订，不会自动升级已经应用过旧迁移的数据库；后续补齐所有权转移时的临时成员授权及撤销，并只给事务RPC部署所有者显式授予私有辅助函数EXECUTE；不开放给service_role直接调用。部署角色的CREATE ROLE、角色管理及ALTER FUNCTION权限仍须实际验证。
+
+## 2026-11-11 托管数据库增量证据
+
+本节更新下文早期“未执行”描述：已在用户指定独立测试项目通过CA与主机名校验建立TLS数据库连接，未关闭证书校验。前三份迁移由用户SQL Editor执行，第四份资产迁移由助手事务执行成功。真实API验证加密投影、CAS竞争单胜、普通核心归档拒绝、受控编辑成功、pgmq错误租约拒绝/正确租约完成；临时账号已删除。真实Storage验证密文上传/解密往返、公共访问拒绝及注销后无对象残留；不是生产数据或真实供应商图片。
+
+仓库原版verify_projection断言先因管理成员记录过严失败；修正为Postgres16+仅允许事务所有者无inherit/SET权限的管理记录，浏览器与service_role私有函数权限不放宽。修订后的verify_projection.sql、verify_jobs.sql、verify_assets.sql均原样执行通过且回滚fixture。未执行verify_m0的pgTAP、完整双用户客户端RLS、实际模型质量及Android原生验收，不把这些新增证据扩展为全量通过。DATABASE_URL/独立密码/证书路径仅在本机使用，不进入Git。
 
 ## 已知架构缺口
 
