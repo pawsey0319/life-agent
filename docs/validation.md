@@ -33,7 +33,7 @@ CI定义新增独立demo服务就绪检查、HTTP三脚本及Chromium浏览器�
 
 本节更新下文早期“未执行”描述：已在用户指定独立测试项目通过CA与主机名校验建立TLS数据库连接，未关闭证书校验。前三份迁移由用户SQL Editor执行，第四份资产迁移由助手事务执行成功。真实API验证加密投影、CAS竞争单胜、普通核心归档拒绝、受控编辑成功、pgmq错误租约拒绝/正确租约完成；临时账号已删除。真实Storage验证密文上传/解密往返、公共访问拒绝及注销后无对象残留；不是生产数据或真实供应商图片。
 
-仓库原版verify_projection断言先因管理成员记录过严失败；修正为Postgres16+仅允许事务所有者无inherit/SET权限的管理记录，浏览器与service_role私有函数权限不放宽。修订后的verify_projection.sql、verify_jobs.sql、verify_assets.sql均原样执行通过且回滚fixture。未执行verify_m0的pgTAP、完整双用户客户端RLS、实际模型质量及Android原生验收，不把这些新增证据扩展为全量通过。DATABASE_URL/独立密码/证书路径仅在本机使用，不进入Git。
+仓库原版verify_projection断言先因管理成员记录过严失败；修正为Postgres16+仅允许事务所有者无inherit/SET权限的管理记录，浏览器与service_role私有函数权限不放宽。修订后的verify_projection.sql、verify_jobs.sql、verify_assets.sql均原样执行通过且回滚fixture。verify_m0所需pgTAP扩展未安装，未为测试改动扩展；另以只读SQL验证基础7表、vector1024、旧CAS服务端权限、记忆/审计RLS、保护触发器、DEK浏览器拒绝六组条件均通过，这不等于pgTAP脚本已执行。双用户Auth/API隔离已通过，完整客户端交互、实际模型质量及Android原生验收尚未执行，不把这些新增证据扩展为全量通过。DATABASE_URL/独立密码/证书路径仅在本机使用，不进入Git。
 
 ## 已知架构缺口
 
