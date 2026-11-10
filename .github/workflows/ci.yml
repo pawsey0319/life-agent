@@ -22,3 +22,41 @@ jobs:
           EXPO_PUBLIC_MODE: demo
           EXPO_PUBLIC_API_URL: http://127.0.0.1:8787
       - run: pnpm check:repository
+      - name: Install browser for deterministic Web acceptance
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Exercise fresh demo HTTP and Web flows
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_MODE=demo pnpm --filter @life-agent/runtime start > /tmp/life-agent-runtime.log 2>&1 &
+          runtime_pid=$!
+          node tests/serve-web.mjs > /tmp/life-agent-web.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$runtime_pid" "$web_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:8787/api/bootstrap > /dev/null && curl --fail --silent http://127.0.0.1:8081/ > /dev/null; then
+              break
+            fi
+            if ! kill -0 "$runtime_pid" 2>/dev/null || ! kill -0 "$web_pid" 2>/dev/null; then
+              echo "Demo acceptance server exited before readiness"
+              exit 1
+            fi
+            if [ "$attempt" = 60 ]; then
+              echo "Demo acceptance server readiness timed out"
+              exit 1
+            fi
+            sleep 1
+          done
+          pnpm test:http
+          pnpm test:e2e
+      - name: Upload acceptance diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-acceptance-diagnostics
+          path: |
+            playwright-report/
+            test-results/
+            /tmp/life-agent-runtime.log
+            /tmp/life-agent-web.log
+          retention-days: 7
