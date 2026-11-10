@@ -1,3 +1,4 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'react-native';
-export default function Layout() { return <><StatusBar barStyle="dark-content" /><Stack screenOptions={{ headerShown: false }} /></>; }
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+export default function Layout() { return <SafeAreaProvider><StatusBar barStyle="dark-content" /><Stack screenOptions={{ headerShown: false }} /></SafeAreaProvider>; }

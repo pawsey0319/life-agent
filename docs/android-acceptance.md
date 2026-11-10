@@ -2,7 +2,7 @@
 
 历史记录（2026-11-10）：本机 arm64、约98GiB可用空间、Java25，当时未发现 Android Studio/SDK/adb，用户选择先模拟器、本机 Runtime。
 
-进展更新（2026-11-11）：当前已确认本机 arm64，Android Studio、SDK、adb 与 API 36 ARM64 模拟器在线；原生 APK 尚未构建通过（许可证/构建元数据仍在处理），因此不能宣称 Android 原生验收通过。
+进展更新（2026-11-11）：已安装并校验官方Android Studio、SDK、ADB37.0.3、Emulator37.3.8、API36 ARM64镜像；专用LifeAgent_API36模拟器在线。Gradle9.4.1 / AGP9.2.1 / compileSdk37 / target36 / BuildTools36+37 / NDK27.1.12297006 / CMake3.22.1完成ARM64 debug APK构建（346任务，BUILD SUCCESSFUL），已adb安装并启动。官方依赖因Java网络超时，通过临时精确版本本地Maven源恢复并核对官方SHA1，没有修改项目依赖版本或关闭TLS。已看到原生首页、切换记忆页与滚动；发现并修复边到边状态栏遮挡，截图确认安全区生效。当前模拟器为明确标识的demo，不等于真实账号/真实模型端到端通过。完整设备验收清单仍需逐项记录。开发APK依赖Metro，不能当独立发布包。
 
 ## 1. 安装与检查
 
