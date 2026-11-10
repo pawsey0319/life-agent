@@ -53,6 +53,10 @@
 
 ## 本地数据库测试入口
 
+仓库提供独立本地配置 `supabase/config.toml`（固定回环端口、不含云项目引用；Storage上限25MiB用于加密编码放大）。具备Docker和Supabase CLI后，在仓库根执行 `supabase start`，然后 `supabase db reset` 从空库应用全部迁移；这是破坏性的本地测试重置，不要链接生产项目执行。配置目前仅通过TOML语法检查，CLI版本/扩展镜像兼容性尚未运行验证。
+
+使用本地数据库地址分别执行 `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/scripts/verify_projection.sql`、`verify_jobs.sql`、`verify_assets.sql`（后两者同目录）。`verify_m0.sql` 依赖pgTAP，应通过支持pgTAP的测试入口执行并检查断言结果，不能仅看psql退出状态。各行为脚本回滚夹具。执行前确认DATABASE_URL明确指向独立本地54322端口。
+
 应用迁移后，使用独立本地 Supabase 的环境变量运行：
 
 ```bash
