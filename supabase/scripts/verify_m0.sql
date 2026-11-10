@@ -29,6 +29,5 @@ rollback;
 -- 3. Direct UPDATE/DELETE of audit_log must raise `audit_log is append-only`.
 -- 4. CAS absent: service_role save(..., expected_revision=0) returns 1; repeat expected 0 fails;
 --    save expected 1 returns 2. Concurrent calls serialize via FOR UPDATE and only one expected revision wins.
--- 5. `set_config('app.controlled_memory_write','on',false)` as authenticated cannot bypass because
---    authenticated has no table write privilege; Runtime should expose narrowly typed controlled RPCs,
---    never a generic set_config or arbitrary SQL endpoint.
+-- 5. Controlled core writes use a NOLOGIN owner role and role-specific RLS policies;
+--    caller-set GUCs confer no authority. Run verify_projection.sql for controlled deletion.

@@ -39,6 +39,8 @@ begin
    raise exception 'runtime audit is append-only';
  end if;
  if tg_op='DELETE' then
+    -- Private helper identity needs no broad Auth read privilege.
+    if current_user='life_memory_writer' then return old; end if;
    if old.kind='memory' and old.guard->>'tier'='core'
       and exists(select 1 from auth.users where id=old.user_id)
       and current_user <> 'life_memory_writer' then raise exception 'core projection requires controlled operation'; end if;
@@ -55,6 +57,7 @@ create trigger runtime_audit_append_only before update or delete on public.runti
 -- This helper has NO public/service execute privilege; the transaction RPC calls it only
 -- after matching one explicit per-entity user action. Workers never supply such actions.
 grant select,update,delete on public.runtime_entities to life_memory_writer;
+create policy runtime_entities_controlled_writer on public.runtime_entities for all to life_memory_writer using (true) with check (true);
 create function public.apply_controlled_projection(p_user_id uuid,p_id text,p_row jsonb)
 returns void language plpgsql security definer set search_path=pg_catalog,public as $$
 begin

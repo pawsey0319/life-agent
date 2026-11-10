@@ -238,12 +238,15 @@ create index if not exists audit_user_at_idx on public.audit_log(user_id, at des
 -- caller-set GUC is never authority: only this current_user identity can alter core rows.
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'life_memory_writer') then
-    create role life_memory_writer nologin noinherit bypassrls;
+    create role life_memory_writer nologin noinherit;
   end if;
 end $$;
 grant usage on schema public to life_memory_writer;
 grant select, update, delete on public.memories to life_memory_writer;
 grant select on public.users to life_memory_writer;
+-- Fresh baseline: narrowly scoped policies replace the superuser-only BYPASSRLS flag.
+create policy memories_controlled_writer on public.memories for all to life_memory_writer using (true) with check (true);
+create policy users_controlled_writer_lookup on public.users for select to life_memory_writer using (true);
 
 create or replace function public.protect_core_memory() returns trigger
 language plpgsql security invoker as $$
