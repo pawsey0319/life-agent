@@ -8,6 +8,22 @@
 
 具体环境变量及启动命令见[README](../README.md)、[服务端环境示例](../packages/runtime/.env.example)和[客户端环境示例](../apps/mobile/.env.example)。主密钥必须是32字节随机值的 base64 编码，例如在可信终端用 `openssl rand -base64 32` 生成，勿复制演示常量。示例文件不自动加载，显式导出环境变量。
 
+## 本地配置预检与分用途供应商
+
+运行 `pnpm preflight:deployment`，默认只读取 Git 忽略的 `packages/runtime/.env.local`，输出键名与是否就绪，不打印值、不访问网络、不执行迁移。退出1表示配置尚缺，退出2表示文件不能读取；通过只代表格式检查，不代表密钥有效、模型支持或数据库已迁移。
+
+文本、提取、嵌入、生图分别使用 `TEXT_*`、`EXTRACT_*`、`EMBED_*`、`IMAGE_*` 的 `BASE_URL/API_KEY/MODEL`。每个用途的地址/密钥未单独设置时，仅回退到旧 `OPENAI_BASE_URL/OPENAI_API_KEY`，不会自动复用其他用途的私钥。配置模式仍要求四用途完整，不允许伪造嵌入/生图模型。DeepSeek文本选择不等于其具备1024维嵌入或生图接口；另行核实和配置。
+
+Node22+可显式加载本地环境，仓库根执行：
+
+```bash
+node --env-file=packages/runtime/.env.local --import tsx packages/runtime/src/server.ts
+# 第二个终端运行Worker，同样需要全部配置：
+node --env-file=packages/runtime/.env.local --import tsx packages/runtime/src/worker.ts
+```
+
+不要将该文件source进未知shell，也不要输出完整环境做诊断。Android模拟器安装、端口连接与验收见 [Android验收](android-acceptance.md)。
+
 ## Supabase
 1. 新建独立项目；不要导入原型用户或复用其他项目密钥。
 2. 应用 `supabase/migrations`，确认 pgvector/pgmq 扩展在目标托管版本可用。数据库管理员执行迁移，客户端永远不拿服务角色。
