@@ -48,7 +48,8 @@ test('local Supabase: encrypted persistence, CAS race, RLS and account cleanup',
     const rpc=await browser.rpc('save_runtime_projection',{p_user_id:uid,p_entities:[],p_core_actions:[],p_wrapped_key:'forged',p_revision:2});
     assert.ok(rpc.error,'browser cannot execute service-only save RPC');
     await store.delete(uid);
-    assert.equal(await store.load(uid),null,'account deletion removes encrypted state');
+    await assert.rejects(()=>store.load(uid),/账号正在删除/,'deleted owner remains fenced against resurrection');
+    const remaining=await store.client.from('runtime_projection_state').select('user_id').eq('user_id',uid);assert.equal(remaining.error,null);assert.deepEqual(remaining.data,[],'account deletion removes encrypted state');
   }finally{
     // A failed assertion must not leave generated credentials/accounts behind.
     const deleted=await store.client.auth.admin.deleteUser(uid);

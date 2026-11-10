@@ -2,17 +2,19 @@ import {DomainError} from '@life-agent/core';
 import {z} from 'zod';
 import {encrypt,decrypt,type SupabaseStore} from './storage.js';
 import type {Models} from './providers.js';
+import {assetBackend,uploadImageAsset,removeImageAsset,type AssetBackend,type ImageAsset} from './assets.js';
 
 export const imageJobPayloadSchema=z.object({name:z.string().trim().min(1).max(20000),appearance:z.string().trim().min(1).max(20000),personality:z.string().trim().min(1).max(20000),relationship:z.string().trim().min(1).max(20000),exclusions:z.string().max(20000)}).strict();
 export type ImageJobPayload=z.infer<typeof imageJobPayloadSchema>;
 export type ImageJob={id:string;user_id:string;kind:string;status:string;payload_ciphertext:string;lease_token:string;attempts:number;result_ciphertext?:string|null};
-export type ImageJobResult={imageUrl:string;completedAt:string};
-export type ImageCandidate={id:string;name:string;description:string;createdAt:string;imageUrl:string};
+export type ImageJobResult=({imageUrl:string;asset?:never}|{asset:ImageAsset;imageUrl?:never})&{completedAt:string};
+export type ImageCandidate={id:string;name:string;description:string;createdAt:string;imageUrl?:string;imageAsset?:ImageAsset};
 export type JobBackend={
  rpc(name:string,params?:Record<string,unknown>):PromiseLike<{data:unknown;error:unknown}>;
  load(userId:string):Promise<{value:unknown;key:Buffer}|null>;
+ assets?:AssetBackend;
 };
-export function jobBackend(store:SupabaseStore):JobBackend{return {rpc:(name,params)=>store.client.rpc(name,params),load:id=>store.load(id)};}
+export function jobBackend(store:SupabaseStore):JobBackend{return {rpc:(name,params)=>store.client.rpc(name,params),load:id=>store.load(id),assets:store.client.storage?assetBackend(store):undefined};}
 const MAX_IMAGE_BYTES=10*1024*1024;
 /** Inline bytes only: no URL fetch, no SSRF, no external expiring link retained. */
 export function durableImageData(image:unknown):string{
@@ -38,8 +40,8 @@ export async function enqueueImageJob(store:SupabaseStore,userId:string,key:Buff
 /** Owner is supplied by authenticated runtime, never by request JSON. */
 export function decodeImageJobResult(row:Pick<ImageJob,'user_id'|'result_ciphertext'>,userId:string,key:Buffer):ImageJobResult{
  if(row.user_id!==userId||!row.result_ciphertext)throw new DomainError('FORBIDDEN','不可读取其他用户或未完成的任务',403);
- const decoded=z.object({imageUrl:z.string(),completedAt:z.string().datetime()}).strict().parse(JSON.parse(decrypt(row.result_ciphertext,key)));
- return {...decoded,imageUrl:durableImageData(decoded.imageUrl)};
+ const decoded=z.union([z.object({imageUrl:z.string(),completedAt:z.string().datetime()}).strict(),z.object({asset:z.object({id:z.string(),path:z.string(),jobId:z.string().optional()}).strict(),completedAt:z.string().datetime()}).strict()]).parse(JSON.parse(decrypt(row.result_ciphertext,key)));
+ return 'imageUrl' in decoded?{...decoded,imageUrl:durableImageData(decoded.imageUrl)}:decoded;
 }
 export async function readImageJob(store:SupabaseStore,userId:string,key:Buffer,jobId:string):Promise<{job:{id:string;status:string;attempts:number};candidate?:ImageCandidate}>{
  const response=await store.client.from('runtime_jobs').select('id,user_id,status,attempts,payload_ciphertext,result_ciphertext').eq('user_id',userId).eq('id',jobId).maybeSingle();
@@ -49,7 +51,8 @@ export async function readImageJob(store:SupabaseStore,userId:string,key:Buffer,
  if(row.user_id!==userId)throw new DomainError('FORBIDDEN','任务不属于当前用户',403);
  if(row.status!=='completed'&&row.status!=='succeeded')return {job};
  const result=decodeImageJobResult(row,userId,key);const payload=imageJobPayloadSchema.parse(JSON.parse(decrypt(row.payload_ciphertext,key)));
- return {job,candidate:{id:row.id,name:payload.name,description:`${payload.appearance}；${payload.personality}；${payload.relationship}`,createdAt:result.completedAt,imageUrl:result.imageUrl}};
+ if('asset' in result&&result.asset?.jobId!==row.id)throw new DomainError('FORBIDDEN','图片资产与任务不匹配',403);
+ return {job,candidate:{id:row.id,name:payload.name,description:`${payload.appearance}；${payload.personality}；${payload.relationship}`,createdAt:result.completedAt,...('asset' in result?{imageAsset:result.asset}:{imageUrl:result.imageUrl})}};
 }
 function permanent(error:unknown){return error instanceof z.ZodError||error instanceof DomainError&&['IMAGE_ASSET','EXTRACTION_FORMAT','PROVIDER_FORMAT'].includes(error.code);}
 export async function processImageJob(store:SupabaseStore,models:Pick<Models,'image'>,now=Date.now()){return processImageJobWithBackend(jobBackend(store),models,now);}
@@ -60,6 +63,8 @@ export async function processImageJobWithBackend(backend:JobBackend,models:Pick<
  const row=claimed[0] as ImageJob;
  const binding={p_user_id:row.user_id,p_job_id:row.id,p_lease_token:row.lease_token};
  if(!row.id||!row.user_id||!row.lease_token||row.kind!=='image')throw new DomainError('JOB_STORAGE','图像任务租约格式无效',503);
+ let uploadedAsset:ImageAsset|undefined;
+ let completionAttempted=false;
  try{
   const owner=await backend.load(row.user_id);
   if(!owner||(owner.value as {pa?:unknown}).pa||typeof (owner.value as {candidateJobId?:unknown}).candidateJobId==='string'&&(owner.value as {candidateJobId:string}).candidateJobId!==row.id){const cancelled=await rpc(backend,'cancel_runtime_job',{p_user_id:row.user_id,p_job_id:row.id});return {status:cancelled===false?'lease_lost':'cancelled',jobId:row.id};}
@@ -68,10 +73,19 @@ export async function processImageJobWithBackend(backend:JobBackend,models:Pick<
   // Recheck deletion/PA confirmation and key rotation after expensive external work.
   const latest=await backend.load(row.user_id);
   if(!latest||(latest.value as {pa?:unknown}).pa||!latest.key.equals(owner.key)||typeof (latest.value as {candidateJobId?:unknown}).candidateJobId==='string'&&(latest.value as {candidateJobId:string}).candidateJobId!==row.id){const cancelled=await rpc(backend,'cancel_runtime_job',{p_user_id:row.user_id,p_job_id:row.id});return {status:cancelled===false?'lease_lost':'cancelled',jobId:row.id};}
-  const result:ImageJobResult={imageUrl,completedAt:new Date(now).toISOString()};
-  const complete=await rpc(backend,'complete_runtime_job',{...binding,p_result_ciphertext:encrypt(JSON.stringify(result),owner.key)});
+  if(!backend.assets)throw new DomainError('ASSET_STORAGE','图像 Worker 必须配置私有资产存储',503);
+  uploadedAsset=await uploadImageAsset(backend.assets,row.user_id,row.id,row.lease_token,imageUrl,owner.key);
+  const result:ImageJobResult={asset:uploadedAsset,completedAt:new Date(now).toISOString()};
+  const resultCiphertext=encrypt(JSON.stringify(result),owner.key);
+  completionAttempted=true;
+  const complete=await rpc(backend,'complete_runtime_job',{...binding,p_result_ciphertext:resultCiphertext});
+  if(complete!==true){await removeImageAsset(backend.assets,row.user_id,uploadedAsset);uploadedAsset=undefined;}
   return {status:complete===true?'completed':'lease_lost',jobId:row.id};
  }catch(error){
+  // A lost completion response may hide a committed result referencing this object.
+  // Keep the durable ledger/object on ambiguity; only a definite false is cleaned above.
+  // Fenced-account sweeps reconcile retained assets; never break a successful image.
+  if(uploadedAsset&&backend.assets&&!completionAttempted)await removeImageAsset(backend.assets,row.user_id,uploadedAsset);
   // Backend owns attempt budget/backoff; no payload, provider body or secret in errors/queue.
   const failed=await rpc(backend,'fail_runtime_job',{...binding,p_retry:!permanent(error)});
   return {status:failed===false?'lease_lost':'failed',jobId:row.id};
