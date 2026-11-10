@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "栖伴 · Life Agent",
+    "slug": "life-agent",
+    "scheme": "life-agent",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "plugins": ["expo-router"],
+    "web": { "bundler": "metro", "output": "single", "name": "栖伴 · Life Agent" },
+    "android": { "package": "com.lifeagent.mobile" }
+  }
+}

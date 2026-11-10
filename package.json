@@ -1,0 +1,27 @@
+{
+  "name": "life-agent",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:runtime": "pnpm --filter @life-agent/runtime dev",
+    "dev:web": "pnpm --filter @life-agent/mobile web",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --if-present test && tsx --test tests/encryption-check.ts",
+    "build:web": "pnpm --filter @life-agent/mobile build:web",
+    "check": "pnpm typecheck && pnpm test && pnpm build:web",
+    "test:http": "node tests/http-smoke.mjs && node tests/http-adversarial.mjs && node tests/http-grants.mjs",
+    "test:e2e": "playwright test",
+    "check:repository": "node tests/check-repository.mjs",
+    "serve:export": "node tests/serve-web.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.2"
+  }
+}

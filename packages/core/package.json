@@ -1,0 +1,1 @@
+{"name":"@life-agent/core","version":"0.0.1","type":"module","main":"./src/index.ts","exports":"./src/index.ts","scripts":{"test":"tsx --test test/*.test.ts","typecheck":"tsc --noEmit"},"dependencies":{"zod":"^4.6.6"},"devDependencies":{"tsx":"^4.19.3","typescript":"^5.7.3","@types/node":"^22.13.10"}}

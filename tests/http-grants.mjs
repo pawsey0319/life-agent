@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+const base=process.env.API_URL??'http://127.0.0.1:8787';
+async function call(path,body){const r=await fetch(base+'/api'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const text=await r.text();return {status:r.status,data:r.headers.get('content-type')?.includes('text/event-stream')?{sse:text}:JSON.parse(text)};}
+const suffix=Date.now();
+const b=(await call('/blocks',{name:'授权测试'+suffix,domain:'writing',persona:'记录助手',components:['records']})).data.block;
+const s=(await call('/sessions',{blockId:b.id})).data.session;
+await call('/sessions/'+s.id+'/messages',{content:'TEST_RAW_PRIVATE_'+suffix});
+const pa=(await call('/sessions',{blockId:'pa'})).data.session;
+const binding={sourceBlockId:b.id,granteeBlockId:'pa',field:'raw_messages',purpose:'answer',sessionId:pa.id,timeRange:{from:new Date(Date.now()-3600000).toISOString(),to:new Date(Date.now()+60000).toISOString()}};
+const req=(await call('/grant-requests',binding)).data.request;
+assert.equal((await call('/grant-requests/'+req.id+'/read',{sessionId:pa.id})).status,403);
+assert.equal((await call('/grant-requests/'+req.id+'/decide',{allow:true})).status,200);
+const consumed=await call('/grant-requests/'+req.id+'/read',{sessionId:pa.id});
+assert.equal(consumed.status,200);assert.equal(consumed.data.message.ephemeral,true);
+const reply=consumed.data.message.content;
+assert.equal((await call('/grant-requests/'+req.id+'/read',{sessionId:pa.id})).status,403);
+const exp=await(await fetch(base+'/api/export')).json();
+assert.ok(!exp.sessions.some(t=>t.messages.some(m=>m.id===consumed.data.message.id)),'Raw-derived answer must not enter session history');
+assert.ok(!exp.memories.some(m=>m.content===reply),'Raw-derived answer must not enter memory');
+await call('/blocks/'+b.id+'/records',{component:'records',content:'普通记录'+suffix});
+await call('/blocks/'+b.id+'/records',{component:'records',content:'我的体重为60公斤'+suffix});
+const grant=(await call('/grants',{sourceBlockId:b.id,granteeBlockId:'pa',field:'records',purpose:'answer'})).data.grant;
+const read=await call('/grants/'+grant.id+'/read',{});
+assert.equal(read.status,200);assert.equal(read.data.records.length,1);assert.ok(!JSON.stringify(read.data).includes('体重'));
+const other=(await call('/blocks',{name:'另一隔离空间'+suffix,domain:'writing',persona:'记录',components:['records']})).data.block;
+assert.equal((await call('/grants',{sourceBlockId:b.id,granteeBlockId:other.id,field:'records',purpose:'answer'})).status,403,'Specialists must never share directly');
+assert.equal((await call('/grant-requests',{sourceBlockId:b.id,granteeBlockId:'pa',field:'records',purpose:'answer',timeRange:{from:'2026-11-11T00:00:00Z',to:'2026-11-10T00:00:00Z'}})).status,403,'Reversed scope range must fail');
+console.log('HTTP grant checks passed: consent-before-read, raw one-shot, ephemeral no-history/memory, ordinary fields exclude sensitive records, no specialist-to-specialist grants');
