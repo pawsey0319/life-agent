@@ -12,7 +12,7 @@
 | HTTP 流程与攻击检查 | 通过 | fresh loopback demo真实进程；smoke/adversarial/grants三脚本，含孵化锁、SSE、敏感确认、删除、拆卸、身份伪造、原文单次读取与临时派生、普通字段排除敏感记录 |
 | Expo Web 导出 | 通过 | `EXPO_PUBLIC_MODE=demo EXPO_PUBLIC_API_URL=http://127.0.0.1:8787 pnpm build:web` |
 | 浏览器桌面/窄屏 | 通过 | Playwright + 本机Chrome，8项：首次发送自动创建会话、迟到历史跨会话切换隔离、启动无JS错误、孵化/敏感记忆/积木记录、清单缩权与扩权拒绝/同意及旧授权失效、通知IANA时区验证及刷新持久化、390px无横向溢出、关闭会话不加载聊天及组件能力/UI交集只读控制；另复查手机重复页脚修复 |
-| 数据库迁移/RLS/并发 | 部分真实验收通过 | 独立托管Postgres17.11：四份迁移已执行；真实API加密写入/CAS单胜/核心保护通过；verify_projection/jobs/assets三脚本在TLS验证连接下通过且fixture回滚。完整双用户浏览器RLS与配置模式端到端仍待验 |
+| 数据库迁移/RLS/并发 | 部分真实验收通过 | 独立托管Postgres17.11：四份迁移已执行；真实API加密写入/CAS单胜/核心保护通过；verify_projection/jobs/assets三脚本在TLS验证连接下通过且fixture回滚。双临时用户真实Auth登录后，跨用户实体/状态/审计/任务/资产/栅栏/账本均无数据或拒绝，双方调用service-only保存RPC均拒绝；配置模式客户端端到端仍待验 |
 | 配置模式与真实供应商 | 数据库与Storage部分通过，模型未执行 | 已连独立Supabase；真实密文图片上传/鉴权解密/公共地址拒绝/删除后对象清空通过，临时账号清理。DeepSeek文本已配置但未付费调用；嵌入/生图配置仍缺 |
 | Android JS/Hermes 导出 | 通过 | demo模式 `expo export --platform android --output-dir dist-android`，1362模块、Hermes bundle生成；产物已忽略，不含APK |
 | Android 原生构建/真机 | 未执行 | JS导出不等于Gradle/APK构建、设备交互或系统推送验收 |
