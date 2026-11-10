@@ -99,6 +99,20 @@ test('Manifest scope shrink applies, expansion requires reject or explicit appro
   }
 });
 
+test('Notification timezone preference validates and persists without changing event UTC',async({page})=>{
+  await page.goto('/');
+  await page.getByRole('button',{name:'05  日程与信箱'}).click();
+  const zone=page.getByLabel('通知偏好 IANA 时区',{exact:true});
+  await zone.fill('Invalid/Place');
+  await page.getByRole('button',{name:'保存通知时区',exact:true}).click();
+  await expect(page.getByText(/有效 IANA 时区/)).toBeVisible();
+  await zone.fill('America/New_York');
+  await page.getByRole('button',{name:'保存通知时区',exact:true}).click();
+  await page.reload();
+  await page.getByRole('button',{name:'05  日程与信箱'}).click();
+  await expect(zone).toHaveValue('America/New_York');
+});
+
 test('Mobile viewport remains usable without horizontal overflow',async({page})=>{
   await page.setViewportSize({width:390,height:844});
   await page.goto('/');

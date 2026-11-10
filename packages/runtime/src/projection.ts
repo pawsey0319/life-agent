@@ -20,6 +20,8 @@ export function projectState(value:unknown,key:Buffer):ProjectionEntity[]{
   out.push(item);
  };
  if(state.pa)push('pa',state.pa as ObjectValue,0);
+  if(state.notificationState)push('metadata',{id:'notificationState',value:state.notificationState},0);
+  if(state.candidateJobId)push('metadata',{id:'candidateJobId',value:state.candidateJobId},1);
  for(const [property,kind] of Object.entries({candidates:'candidate',blocks:'block',records:'record',schedules:'schedule',inbox:'inbox',styles:'style',events:'event'}))array(state[property]).forEach((row,i)=>push(kind,row,i));
  array(state.sessions).forEach((session,i)=>{const {messages,...header}=session;push('session',header,i);array(messages).filter(m=>!m.ephemeral).forEach((message,j)=>{push('message',message,j);out[out.length-1]!.parent_id=String(session.id);out[out.length-1]!.block_id=String(session.blockId);});});
  const book=state.book as ObjectValue;
@@ -44,7 +46,8 @@ export function unprojectState(rows:{kind:string;entity_id:string;ordinal:number
   if(row.block_id!==null&&row.block_id!==undefined&&row.kind!=='message'&&String(value.blockId)!==row.block_id)throw new DomainError('INVALID_STATE','持久化命名空间校验失败',503);
   if(row.kind==='memory'&&row.guard&&canonical(row.guard)!==canonical({tier:value.tier,state:value.state,pinned:value.pinned,sensitive:value.sensitive,subjectKey:fingerprint(value.subject,key)}))throw new DomainError('INVALID_STATE','记忆保护元数据校验失败',503);
   if(row.kind==='pa')state.pa=value;
-  else if(row.kind==='message')messages.push({row,value});
+  else if(row.kind==='metadata'&&['notificationState','candidateJobId'].includes(String(value.id)))state[String(value.id)]=value.value;
+   else if(row.kind==='message')messages.push({row,value});
   else if(row.kind==='tombstone')(book.deleted as unknown[]).push(value.id);
   else if(targets[row.kind]){if(row.kind==='session')value.messages=[];targets[row.kind]!.push(value);}
   else throw new DomainError('INVALID_STATE','未知持久化实体类型',503);

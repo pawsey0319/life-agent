@@ -20,6 +20,7 @@ test('normalized encrypted entities round-trip without plaintext and exclude eph
  assert.equal((loaded.pa as {name:string}).name,'private-name');
  assert.deepEqual((loaded.sessions as {messages:{id:string}[]}[])[0]!.messages.map(m=>m.id),['m']);
  assert.equal((loaded.gateway as {audit:unknown[]}).audit.length,1);
+ assert.deepEqual(loaded.notificationState,state.notificationState);
  assert.throws(()=>unprojectState(rows.map((r,i)=>i===0?{...r,fingerprint:'tampered'}:r),audits,key));
 });
 

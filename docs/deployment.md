@@ -26,7 +26,11 @@
 
 ## 当前内测 Worker 启动
 
-服务端环境配置完成后运行 `RUNTIME_MODE=configured pnpm --filter @life-agent/runtime worker`。`WORKER_INTERVAL_MS` 默认60000，`WORKER_ONCE=true` 可单次执行后退出。它轮询加密状态、执行夜间整理/站内到期提醒，并通过CAS提交；冲突下一轮重新读取。当前不消费pgmq，无持久失败队列，不能声称以下完整运维目标已实现。
+服务端环境配置完成后运行 `RUNTIME_MODE=configured pnpm --filter @life-agent/runtime worker`。`WORKER_INTERVAL_MS` 默认60000，`WORKER_ONCE=true` 可单次执行后退出。它轮询加密状态、执行夜间整理/站内到期提醒与本地08:00成绩早报，并通过CAS提交；冲突下一轮重新读取。每轮另消费一个pgmq生图任务，90秒租约、最多3次领取、固定30秒延迟重试，状态保存在runtime_jobs；完整失败管理台仍未实现。模型单次请求60秒超时，不等于整个任务严格小于90秒，慢数据库或进程暂停仍可能导致租约过期与重复供应商费用。
+
+先应用全部迁移，包括异步队列迁移。配置模式 `POST /api/pa/candidates` 返回202与任务ID；客户端轮询 `GET /api/pa/candidate-jobs/:id`，仅当前最新任务可采用，PA确认/账号删除后不得采用迟到结果。没有Worker时任务会保持排队，不自动同步调用或切回演示。
+
+输入和结果均按本人DEK加密，pgmq仅含任务与账号标识。当前只接受供应商返回的base64 PNG/JPEG/WebP（签名校验、最大10MB），不下载供应商URL，避免隐式SSRF。图片加密保存在任务结果/候选实体，尚未接Storage或优化大图传输。任务入队与pgmq发送是一个数据库事务，但入队与候选状态CAS分属不同事务：失败可产生无主最新任务，必须重试生成，不自动采用；外部生成费用无法保证exactly-once。
 
 ## Worker 和通知（目标检查表）
 - Worker 每次执行重查账户、源消息、积木状态、授权有效期；幂等键+重试上限+失败可见。删除/拆卸时取消待办。
