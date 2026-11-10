@@ -62,6 +62,7 @@ CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" pnpm 
 - 拆卸清理命名空间与授权，删除记忆清理检索派生物；队列不能复活已删数据。
 
 ## 文档
+- [工程交付与待验收清单](docs/acceptance-handoff.md)
 - [持续维护 PRD](docs/PRD.md)
 - [已确认 M0 设计](docs/superpowers/specs/2026-11-10-life-agent-m0-design.md)
 - [实施计划与 HTTP 合同](docs/implementation-plan.md)
