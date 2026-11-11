@@ -64,3 +64,10 @@ pnpm --filter @life-agent/mobile exec expo run:android
 9. Android 导出分享、重新认证注销、弱网失败提示。
 
 模拟器通过后仍建议至少一部真实 Android 设备验证网络、照片/分享及后台行为。实际系统推送需要独立实现和设备投递证据。
+
+## 2026-11-11 configured Android checkpoint
+
+- 冷启动后发现原生窄屏顶部导航压缩不足：密码字段和登录按钮落在可访问视口之外。已在 `apps/mobile/app/index.tsx` 与 `apps/mobile/src/ui.tsx` 对非 Web 导航采用紧凑布局；Web 样式保持不变。`pnpm typecheck` 与 `git diff --check` 通过。
+- 使用重建 APK、adb reverse `8081/8791` 与 Supabase 临时账号完成真实配置模式登录；登录后工作台显示“模型能力”，并显示嵌入未配置的 fail-closed 提示。未进行生图或嵌入调用。截图：`/tmp/life-agent-configured-workspace.png`（仅本机证据，不入库）。
+- 临时 Auth 账号已通过管理 API 删除并移除本机凭据文件；不得把该账号或凭据写入仓库。
+- 本次仍不宣称完整 M0：Android 详细业务逐项验收、真实生图/嵌入、系统推送、真实设备与生产发布仍未完成。
