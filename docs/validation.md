@@ -13,13 +13,13 @@
 | Expo Web 导出 | 通过 | `EXPO_PUBLIC_MODE=demo EXPO_PUBLIC_API_URL=http://127.0.0.1:8787 pnpm build:web` |
 | 浏览器桌面/窄屏 | 通过 | Playwright + 本机Chrome，8项：首次发送自动创建会话、迟到历史跨会话切换隔离、启动无JS错误、孵化/敏感记忆/积木记录、清单缩权与扩权拒绝/同意及旧授权失效、通知IANA时区验证及刷新持久化、390px无横向溢出、关闭会话不加载聊天及组件能力/UI交集只读控制；另复查手机重复页脚修复 |
 | 数据库迁移/RLS/并发 | 部分真实验收通过 | 独立托管Postgres17.11：四份迁移已执行；真实API加密写入/CAS单胜/核心保护通过；verify_projection/jobs/assets三脚本在TLS验证连接下通过且fixture回滚。双临时用户真实Auth登录后，跨用户实体/状态/审计/任务/资产/栅栏/账本均无数据或拒绝，双方调用service-only保存RPC均拒绝；配置模式客户端端到端仍待验 |
-| 配置模式与真实供应商 | SiliconFlow 嵌入/单次生图探针通过；完整 Worker 链路待实测 | 已连独立Supabase；真实密文图片上传/鉴权解密/公共地址拒绝/删除后对象清空通过，临时账号清理。DeepSeek TEXT/EXTRACT 最小合成调用通过；SiliconFlow EMBED 返回 1024 个有限值，IMAGE 返回 PNG 并经 `s3.siliconflow.cn` 精确白名单、HTTPS 下载、大小与魔数校验通过。完整真实向量检索、Worker/私有Storage/账号删除链路与模型质量仍未执行 |
+| 配置模式与真实供应商 | SiliconFlow 嵌入、检索/删除和生图完整链路通过；模型质量未评估 | 已连独立Supabase；临时账号完成真实向量查询（1024 个有限值）、记忆向量缓存复用、单条记忆从读取/导出/检索消失；生图任务完成入队→Worker→`succeeded`→私有Storage读取，PNG 经 `s3.siliconflow.cn` 精确白名单、HTTPS 下载、大小与魔数校验，Storage 对象加密、公共地址拒绝、PA确认读取及账号删除后资产清空均通过。DeepSeek TEXT/EXTRACT 最小合成调用通过；不等于供应商质量、300条标注或一周使用验收 |
 | Android JS/Hermes 导出 | 通过 | demo模式 `expo export --platform android --output-dir dist-android`，1362模块、Hermes bundle生成；产物已忽略，不含APK |
-| Android 原生构建/真机 | 未执行 | JS导出不等于Gradle/APK构建、设备交互或系统推送验收 |
+| Android 原生构建/真机 | APK与模拟器配置模式已验，真机由用户执行 | 已完成 Gradle/APK构建及模拟器配置模式登录、记忆提交/读取；真机不在本轮自动化验收范围，系统推送未实现 |
 | 真实模型300条标注 | 未执行 | 见模型验收协议；不生成虚假准确率 |
 | 真实专业调度30题 | 未执行 | 种子用于规则测试，实际模型评测另算 |
 | 本人连续一周使用 | 未执行 | 不能通过自动化压缩成一轮测试 |
-| 推送与远端 SHA | 已核对至4a300c4 | `4a300c4b25a3f6cc925193f024067abff1f0445b` 本地与 GitHub main 一致，包含权限链修正与离线评分工具；HTTPS故障恢复后正常推送，无force push。之后的工作区修改不自动算远端交付 |
+| 推送与远端 SHA | 待本轮提交后核对 | 本轮真实云验收证据仅写入本地文档后再推送；需核对 GitHub main 的精确 SHA 与对应 CI 运行，不将此前成功运行永久继承 |
 
 ## CI验收扩展
 
