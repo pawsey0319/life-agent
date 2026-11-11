@@ -70,4 +70,5 @@ pnpm --filter @life-agent/mobile exec expo run:android
 - 冷启动后发现原生窄屏顶部导航压缩不足：密码字段和登录按钮落在可访问视口之外。已在 `apps/mobile/app/index.tsx` 与 `apps/mobile/src/ui.tsx` 对非 Web 导航采用紧凑布局；Web 样式保持不变。`pnpm typecheck` 与 `git diff --check` 通过。
 - 使用重建 APK、adb reverse `8081/8791` 与 Supabase 临时账号完成真实配置模式登录；登录后工作台显示“模型能力”，并显示嵌入未配置的 fail-closed 提示。未进行生图或嵌入调用。截图：`/tmp/life-agent-configured-workspace.png`（仅本机证据，不入库）。
 - 临时 Auth 账号已通过管理 API 删除并移除本机凭据文件；不得把该账号或凭据写入仓库。
+- 进一步通过临时账号完成原生“登录→记忆手账→提交一条普通记忆”的链路；随后删除整个临时 Auth 账号，连同该账号活动数据一起清理。由于账号删除会结束会话，本次未把“记忆条目删除后仍留在同一账号工作台”单独记为通过。
 - 本次仍不宣称完整 M0：Android 详细业务逐项验收、真实生图/嵌入、系统推送、真实设备与生产发布仍未完成。
