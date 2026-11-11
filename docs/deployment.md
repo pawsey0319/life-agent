@@ -8,6 +8,32 @@
 
 具体环境变量及启动命令见[README](../README.md)、[服务端环境示例](../packages/runtime/.env.example)和[客户端环境示例](../apps/mobile/.env.example)。主密钥必须是32字节随机值的 base64 编码，例如在可信终端用 `openssl rand -base64 32` 生成，勿复制演示常量。示例文件不自动加载，显式导出环境变量。
 
+## SiliconFlow 初步内测（可选）
+
+本轮选用 SiliconFlow 的 OpenAI-compatible API：Embedding 使用 `Qwen/Qwen3-Embedding-0.6B`，必须返回 1024 个有限数值；生图使用 `Tongyi-MAI/Z-Image-Turbo`。参考价格和可用额度以供应商当前控制台为准，API key 只放服务端环境。生产请求会携带实际业务所需的最小字段；下面的探针只发送合成输入。
+
+```dotenv
+EMBED_BASE_URL=https://api.siliconflow.com/v1
+EMBED_API_KEY=replace-with-server-only-key
+EMBED_MODEL=Qwen/Qwen3-Embedding-0.6B
+IMAGE_BASE_URL=https://api.siliconflow.com/v1
+IMAGE_API_KEY=replace-with-server-only-key
+IMAGE_MODEL=Tongyi-MAI/Z-Image-Turbo
+# 只填写供应商文档或控制台明确给出的图片 CDN 主机，逗号分隔；禁止通配符、URL、端口和路径
+IMAGE_ASSET_HOSTS=verified-image-cdn.example
+```
+
+SiliconFlow 生图响应通常是短期 HTTPS URL；部署者必须把 URL 当作一次性输入，由服务端在严格超时、无重定向、HTTPS、精确允许主机和公共 DNS 地址校验下下载，再做 PNG/JPEG/WebP magic 校验和 10MB 限制后加密入私有 Storage。临时 URL 永远不写入任务结果或候选。未配置 `IMAGE_ASSET_HOSTS` 时，Runtime 默认只允许图片接口端点主机；如果供应商返回不同 CDN，必须先核实该 CDN 并显式配置其精确主机，否则任务 fail-closed。下载传输错误、429、5xx 按租约规则重试；不安全主机、重定向、超限或内容类型错误永久失败。没有 key 时保持用途未配置，不能用 Demo 或 DeepSeek 文本模型替代。
+
+探针默认只报告跳过：
+
+```bash
+RUN_CLOUD_MODEL_PROBE=1 PROBE_PURPOSES=embed,image \
+  node --env-file=packages/runtime/.env.local --import tsx tests/probe-cloud-models.ts
+```
+
+探针成功只输出维度、图片格式/字节数和耗时；失败不输出 key、原始响应、请求正文或 URL。CI 不设置 `RUN_CLOUD_MODEL_PROBE`，所以不会产生付费调用。探针通过后仍须按下方清单完成真实 Supabase、Worker、私有资产、删除和账号隔离验收。
+
 ## 本地配置预检与分用途供应商
 
 运行 `pnpm preflight:deployment`，默认只读取 Git 忽略的 `packages/runtime/.env.local`，输出键名与是否就绪，不打印值、不访问网络、不执行迁移。核心配置缺失或非法时退出1；`EMBED_*`、`IMAGE_*` 完全缺失只记录为可选能力缺口，不阻止核心就绪；可选用途部分配置仍退出1。退出2表示文件不能读取；通过只代表格式检查，不代表密钥有效、模型支持或数据库已迁移。
@@ -46,7 +72,7 @@ node --env-file=packages/runtime/.env.local --import tsx packages/runtime/src/wo
 
 先应用全部迁移，包括异步队列迁移。配置模式已配置生图用途时，`POST /api/pa/candidates` 返回202与任务ID；客户端轮询 `GET /api/pa/candidate-jobs/:id`，仅当前最新任务可采用，PA确认/账号删除后不得采用迟到结果。没有Worker时任务会保持排队，不自动同步调用或切回演示。
 
-输入和结果均按本人DEK加密，pgmq仅含任务与账号标识。当前只接受供应商返回的base64 PNG/JPEG/WebP（签名校验、最大10MB），不下载供应商URL，避免隐式SSRF。新图像按本人DEK加密上传私有`life-agent-assets`桶，任务/候选只存引用。Runtime逐次验证资产owner/id/path/job及ready状态后解密为内联数据展示，不签发公共/短时直达Storage链接；旧内联结果兼容读取但不自动迁移。10MB原图因dataURL及密文编码约放大1.78倍，传输/缩略图优化未实现。任务入队与pgmq发送是一个数据库事务，但入队与候选状态CAS分属不同事务：失败可产生无主最新任务，必须重试生成，不自动采用；外部生成费用无法保证exactly-once。
+输入和结果均按本人DEK加密，pgmq仅含任务与账号标识。供应商返回的内联 PNG/JPEG/WebP 或临时 HTTPS URL，均由 Worker 先执行精确允许主机、公共 DNS 地址、无重定向、超时、最大10MB与魔数校验；临时 URL 不写入任务或候选。新图像按本人DEK加密上传私有`life-agent-assets`桶，任务/候选只存引用。Runtime逐次验证资产owner/id/path/job及ready状态后解密为内联数据展示，不签发公共/短时直达Storage链接；旧内联结果兼容读取但不自动迁移。10MB原图因dataURL及密文编码约放大1.78倍，传输/缩略图优化未实现。任务入队与pgmq发送是一个数据库事务，但入队与候选状态CAS分属不同事务：失败可产生无主最新任务，必须重试生成，不自动采用；外部生成费用无法保证exactly-once。
 
 ## 私有图片与注销清理
 

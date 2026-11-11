@@ -1,4 +1,6 @@
 import {DomainError} from '@life-agent/core';
+import {lookup} from 'node:dns/promises';
+import https from 'node:https';
 import {z} from 'zod';
 import {encrypt,decrypt,type SupabaseStore} from './storage.js';
 import {hasModelPurpose,type Models} from './providers.js';
@@ -16,6 +18,9 @@ export type JobBackend={
 };
 export function jobBackend(store:SupabaseStore):JobBackend{return {rpc:(name,params)=>store.client.rpc(name,params),load:id=>store.load(id),assets:store.client.storage?assetBackend(store):undefined};}
 const MAX_IMAGE_BYTES=10*1024*1024;
+const IMAGE_FETCH_TIMEOUT_MS=15000;
+const PNG_SIGNATURE=Buffer.from([137,80,78,71,13,10,26,10]);
+function imageMime(bytes:Buffer):'png'|'jpeg'|'webp'|undefined{if(bytes.subarray(0,8).equals(PNG_SIGNATURE))return 'png';if(bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return 'jpeg';if(bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WEBP')return 'webp';}
 /** Inline bytes only: no URL fetch, no SSRF, no external expiring link retained. */
 export function durableImageData(image:unknown):string{
  if(typeof image!=='string'||image.length>Math.ceil(MAX_IMAGE_BYTES*4/3)+128)throw new DomainError('IMAGE_ASSET','图像缺失或超过 10MB',503);
@@ -23,9 +28,46 @@ export function durableImageData(image:unknown):string{
  if(!match)throw new DomainError('IMAGE_ASSET','异步图像必须提供内联 PNG/JPEG/WebP；不会抓取外部地址',503);
  const bytes=Buffer.from(match[2]!,'base64');
  if(bytes.length===0||bytes.length>MAX_IMAGE_BYTES||bytes.toString('base64')!==match[2])throw new DomainError('IMAGE_ASSET','图像编码无效或超过 10MB',503);
- const type=match[1];const valid=type==='png'?bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):type==='jpeg'?bytes[0]===255&&bytes[1]===216&&bytes[2]===255:bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WEBP';
- if(!valid)throw new DomainError('IMAGE_ASSET','图像类型与内容不匹配',503);
+ if(imageMime(bytes)!==match[1])throw new DomainError('IMAGE_ASSET','图像类型与内容不匹配',503);
  return image;
+}
+/** Conservative global-unicast policy: mapped/transition IPv6 is deliberately excluded. */
+export function publicImageAddress(address:string):boolean{
+ if(address.includes(':'))return /^2[0-9a-f]{3}:/i.test(address)&&!/^2001:(?:0:|db8:|10:|20:)/i.test(address)&&!/^2002:/i.test(address);
+ const p=address.split('.').map(Number);if(p.length!==4||p.some(v=>!Number.isInteger(v)||v<0||v>255))return false;
+ return p[0]!>0&&p[0]!<224&&![10,127].includes(p[0]!)&&!(p[0]===100&&p[1]!>=64&&p[1]!<=127)&&!(p[0]===169&&p[1]===254)&&!(p[0]===172&&p[1]!>=16&&p[1]!<=31)&&!(p[0]===192&&(p[1]===168||p[1]===0||p[1]===2))&&!(p[0]===198&&[18,19,51].includes(p[1]!))&&!(p[0]===203&&p[1]===0);
+}
+export type ImageDownloadTransport=(url:URL,signal:AbortSignal)=>Promise<Response>;
+async function pinnedFetch(url:URL,signal:AbortSignal):Promise<Response>{
+ const records=await lookup(url.hostname,{all:true,verbatim:true});signal.throwIfAborted();
+ if(!records.length||records.some(record=>!publicImageAddress(record.address)))throw new DomainError('IMAGE_ASSET','图像地址不允许访问',503);
+ const record=records[0]!;
+ return await new Promise((resolve,reject)=>{
+  const request=https.get(url,{agent:false,signal,lookup:(_host,options,callback)=>{if(typeof options==='object'&&options.all)callback(null,[record]);else callback(null,record.address,record.family);}},response=>{
+   const headers=new Headers();for(const [name,value] of Object.entries(response.headers))if(value!==undefined)headers.set(name,Array.isArray(value)?value.join(','):value);
+   const body=new ReadableStream<Uint8Array>({start(controller){response.on('data',(chunk:Buffer)=>controller.enqueue(new Uint8Array(chunk)));response.on('end',()=>controller.close());response.on('error',error=>controller.error(error));},cancel(){response.destroy();request.destroy();}});
+   resolve(new Response(body,{status:response.statusCode??500,headers}));
+  });request.on('error',reject);
+ });
+}
+async function readLimitedBody(response:Response):Promise<Buffer>{
+ const contentLength=response.headers.get('content-length');
+ if(contentLength&&(!/^\d+$/.test(contentLength)||Number(contentLength)>MAX_IMAGE_BYTES))throw new DomainError('IMAGE_ASSET','图像缺失或超过 10MB',503);
+ if(!response.body)throw new DomainError('IMAGE_ASSET','图像响应为空',503);
+ const reader=response.body.getReader();const chunks:Buffer[]=[];let total=0;
+ try{while(true){const part=await reader.read();if(part.done)break;total+=part.value.byteLength;if(total>MAX_IMAGE_BYTES)throw new DomainError('IMAGE_ASSET','图像缺失或超过 10MB',503);chunks.push(Buffer.from(part.value));}}finally{await reader.cancel().catch(()=>{});reader.releaseLock();}
+ return Buffer.concat(chunks,total);
+}
+/** Resolve a temporary provider URL only inside the worker, under an exact host allowlist. */
+export async function providerImageData(image:unknown,allowedHosts:ReadonlySet<string>=new Set(),transport:ImageDownloadTransport=pinnedFetch):Promise<string>{
+ if(typeof image!=='string')throw new DomainError('IMAGE_ASSET','图像缺失或格式无效',503);
+ if(image.startsWith('data:'))return durableImageData(image);
+ let url:URL;try{url=new URL(image);}catch{throw new DomainError('IMAGE_ASSET','图像地址无效',503);}
+ if(url.protocol!=='https:'||url.username||url.password||url.port||!allowedHosts.has(url.hostname.toLowerCase()))throw new DomainError('IMAGE_ASSET','图像地址主机不受信任',503);
+ let response:Response;try{response=await transport(url,AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS));}catch(error){if(error instanceof DomainError)throw error;throw new DomainError('PROVIDER_UNAVAILABLE','图像下载失败',503);}
+ if(!response.ok){await response.body?.cancel();throw new DomainError(response.status>=300&&response.status<400?'IMAGE_ASSET':'PROVIDER_ERROR','图像服务返回错误',503);}
+ const bytes=await readLimitedBody(response);const type=imageMime(bytes);if(!type)throw new DomainError('IMAGE_ASSET','图像类型与内容不匹配',503);
+ return durableImageData(`data:image/${type};base64,${bytes.toString('base64')}`);
 }
 async function rpc(backend:JobBackend,name:string,params?:Record<string,unknown>){const result=await backend.rpc(name,params);if(result.error)throw new DomainError('JOB_STORAGE','图像任务存储暂不可用',503);return result.data;}
 export async function enqueueImageJob(store:SupabaseStore,userId:string,key:Buffer,payload:ImageJobPayload,idempotencyKey:string):Promise<string>{
@@ -55,8 +97,8 @@ export async function readImageJob(store:SupabaseStore,userId:string,key:Buffer,
  return {job,candidate:{id:row.id,name:payload.name,description:`${payload.appearance}；${payload.personality}；${payload.relationship}`,createdAt:result.completedAt,...('asset' in result?{imageAsset:result.asset}:{imageUrl:result.imageUrl})}};
 }
 function permanent(error:unknown){return error instanceof z.ZodError||error instanceof DomainError&&['IMAGE_ASSET','EXTRACTION_FORMAT','PROVIDER_FORMAT'].includes(error.code);}
-export async function processImageJob(store:SupabaseStore,models:Pick<Models,'image'|'configuredPurposes'>,now=Date.now()){return processImageJobWithBackend(jobBackend(store),models,now);}
-export async function processImageJobWithBackend(backend:JobBackend,models:Pick<Models,'image'|'configuredPurposes'>,now=Date.now()):Promise<{status:'disabled'|'idle'|'completed'|'cancelled'|'failed'|'lease_lost';jobId?:string}>{
+export async function processImageJob(store:SupabaseStore,models:Pick<Models,'image'|'configuredPurposes'|'imageAssetHosts'>,now=Date.now()){return processImageJobWithBackend(jobBackend(store),models,now);}
+export async function processImageJobWithBackend(backend:JobBackend,models:Pick<Models,'image'|'configuredPurposes'|'imageAssetHosts'>,now=Date.now()):Promise<{status:'disabled'|'idle'|'completed'|'cancelled'|'failed'|'lease_lost';jobId?:string}>{
  if(!hasModelPurpose(models,'image'))return {status:'disabled'};
  const claimed=await rpc(backend,'claim_runtime_job');
  if(!Array.isArray(claimed)||claimed.length>1)throw new DomainError('JOB_STORAGE','任务租约返回无效',503);
@@ -70,7 +112,7 @@ export async function processImageJobWithBackend(backend:JobBackend,models:Pick<
   const owner=await backend.load(row.user_id);
   if(!owner||(owner.value as {pa?:unknown}).pa||typeof (owner.value as {candidateJobId?:unknown}).candidateJobId==='string'&&(owner.value as {candidateJobId:string}).candidateJobId!==row.id){const cancelled=await rpc(backend,'cancel_runtime_job',{p_user_id:row.user_id,p_job_id:row.id});return {status:cancelled===false?'lease_lost':'cancelled',jobId:row.id};}
   let payload:ImageJobPayload;try{payload=imageJobPayloadSchema.parse(JSON.parse(decrypt(row.payload_ciphertext,owner.key)));}catch{throw new DomainError('IMAGE_ASSET','图像任务载荷损坏',503);}
-  const imageUrl=durableImageData(await models.image(`Create companion portrait. Appearance: ${payload.appearance}. Personality: ${payload.personality}. Exclude: ${payload.exclusions}`));
+  const imageUrl=await providerImageData(await models.image(`Create companion portrait. Appearance: ${payload.appearance}. Personality: ${payload.personality}. Exclude: ${payload.exclusions}`),models.imageAssetHosts);
   // Recheck deletion/PA confirmation and key rotation after expensive external work.
   const latest=await backend.load(row.user_id);
   if(!latest||(latest.value as {pa?:unknown}).pa||!latest.key.equals(owner.key)||typeof (latest.value as {candidateJobId?:unknown}).candidateJobId==='string'&&(latest.value as {candidateJobId:string}).candidateJobId!==row.id){const cancelled=await rpc(backend,'cancel_runtime_job',{p_user_id:row.user_id,p_job_id:row.id});return {status:cancelled===false?'lease_lost':'cancelled',jobId:row.id};}
@@ -83,11 +125,8 @@ export async function processImageJobWithBackend(backend:JobBackend,models:Pick<
   if(complete!==true){await removeImageAsset(backend.assets,row.user_id,uploadedAsset);uploadedAsset=undefined;}
   return {status:complete===true?'completed':'lease_lost',jobId:row.id};
  }catch(error){
-  // A lost completion response may hide a committed result referencing this object.
-  // Keep the durable ledger/object on ambiguity; only a definite false is cleaned above.
-  // Fenced-account sweeps reconcile retained assets; never break a successful image.
+  // A lost completion response may hide a committed result referencing this object; retain it on ambiguity.
   if(uploadedAsset&&backend.assets&&!completionAttempted)await removeImageAsset(backend.assets,row.user_id,uploadedAsset);
-  // Backend owns attempt budget/backoff; no payload, provider body or secret in errors/queue.
   const failed=await rpc(backend,'fail_runtime_job',{...binding,p_retry:!permanent(error)});
   return {status:failed===false?'lease_lost':'failed',jobId:row.id};
  }
