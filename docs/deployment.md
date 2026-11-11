@@ -13,10 +13,10 @@
 本轮选用 SiliconFlow 的 OpenAI-compatible API：Embedding 使用 `Qwen/Qwen3-Embedding-0.6B`，必须返回 1024 个有限数值；生图使用 `Tongyi-MAI/Z-Image-Turbo`。参考价格和可用额度以供应商当前控制台为准，API key 只放服务端环境。生产请求会携带实际业务所需的最小字段；下面的探针只发送合成输入。
 
 ```dotenv
-EMBED_BASE_URL=https://api.siliconflow.com/v1
+EMBED_BASE_URL=https://api.siliconflow.cn/v1
 EMBED_API_KEY=replace-with-server-only-key
 EMBED_MODEL=Qwen/Qwen3-Embedding-0.6B
-IMAGE_BASE_URL=https://api.siliconflow.com/v1
+IMAGE_BASE_URL=https://api.siliconflow.cn/v1
 IMAGE_API_KEY=replace-with-server-only-key
 IMAGE_MODEL=Tongyi-MAI/Z-Image-Turbo
 # 只填写供应商文档或控制台明确给出的图片 CDN 主机，逗号分隔；禁止通配符、URL、端口和路径
