@@ -4,7 +4,7 @@
 
 ## 两种模式
 - **demo**：仅本地回环监听、模拟模型、独立可重置状态；不输入真实健康/金融等私人数据。客户端常驻演示标识。
-- **configured**：缺 Supabase、主密钥或核心模型配置即报错；不能悄悄退回 demo。鉴权必须验证 Supabase 用户，不能仅解析未验签 JWT。核心模型为 `TEXT_*` 与 `EXTRACT_*`，`EMBED_*`、`IMAGE_*` 可暂不配置，但只要开始配置某用途就必须提供该用途的地址、密钥和模型。
+- **configured**：缺 Supabase、主密钥或核心模型配置即报错；不能悄悄退回 demo。鉴权必须验证 Supabase 用户，不能仅解析未验签 JWT。核心模型为 `TEXT_*` 与 `EXTRACT_*`，`EMBED_*`、`IMAGE_*` 可暂不配置，但只要开始配置某用途就必须提供该用途的地址、密钥和模型。当前本机内测使用 `https://api.siliconflow.cn/v1`；`.env.local` 另配置了精确图片 CDN 主机 `s3.siliconflow.cn`。
 
 具体环境变量及启动命令见[README](../README.md)、[服务端环境示例](../packages/runtime/.env.example)和[客户端环境示例](../apps/mobile/.env.example)。主密钥必须是32字节随机值的 base64 编码，例如在可信终端用 `openssl rand -base64 32` 生成，勿复制演示常量。示例文件不自动加载，显式导出环境变量。
 
